@@ -1,0 +1,5 @@
+{
+  "name": "TaskMaster AI",
+  "description": "A personal task management system with AI summaries, Excel import, and sub-task templates.",
+  "requestFramePermissions": ["notifications"]
+}
