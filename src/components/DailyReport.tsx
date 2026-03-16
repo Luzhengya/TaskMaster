@@ -4,7 +4,6 @@ import { taskService } from '../services/taskService';
 import { aiService } from '../services/aiService';
 import { 
   Sparkles, 
-  CheckCircle2, 
   Clock, 
   AlertCircle, 
   Copy, 
@@ -52,46 +51,46 @@ export const DailyReport: React.FC = () => {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-serif font-bold">Daily Report & AI Summary</h2>
-        <p className="text-gray-500">Review today's progress and generate AI insights</p>
+        <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">Daily Report</h2>
+        <p className="text-[#86868b]">Review today's progress and generate AI insights</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Task Lists */}
         <div className="lg:col-span-2 space-y-6">
-          <section className="bg-white rounded-3xl p-6 shadow-sm border border-black/5">
-            <div className="flex items-center gap-2 mb-4 text-[#5A5A40]">
+          <section className="mac-card p-6">
+            <div className="flex items-center gap-2 mb-4 text-[#007aff]">
               <Clock size={20} />
-              <h3 className="font-bold uppercase tracking-widest text-xs">Today's Scheduled</h3>
+              <h3 className="font-bold uppercase tracking-widest text-[10px]">Today's Scheduled</h3>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {todayTasks.length > 0 ? todayTasks.map(t => (
-                <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                  <span className="font-medium">{t.task_name}</span>
-                  <span className="text-xs px-2 py-1 bg-white rounded-lg border border-black/5">{t.status}</span>
+                <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                  <span className="font-medium text-sm">{t.task_name}</span>
+                  <span className="text-[10px] px-2 py-0.5 bg-white rounded-md border border-gray-200 text-[#86868b]">{t.status}</span>
                 </div>
               )) : (
-                <p className="text-sm text-gray-400 italic">No tasks scheduled for today.</p>
+                <p className="text-sm text-[#86868b] italic">No tasks scheduled for today.</p>
               )}
             </div>
           </section>
 
-          <section className="bg-white rounded-3xl p-6 shadow-sm border border-black/5">
-            <div className="flex items-center gap-2 mb-4 text-red-500">
+          <section className="mac-card p-6">
+            <div className="flex items-center gap-2 mb-4 text-[#ff3b30]">
               <AlertCircle size={20} />
-              <h3 className="font-bold uppercase tracking-widest text-xs">Delayed / Overdue</h3>
+              <h3 className="font-bold uppercase tracking-widest text-[10px]">Delayed / Overdue</h3>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {delayedTasks.length > 0 ? delayedTasks.map(t => (
-                <div key={t.id} className="flex items-center justify-between p-3 bg-red-50 rounded-xl">
+                <div key={t.id} className="flex items-center justify-between p-3 bg-red-50/50 rounded-xl border border-red-100">
                   <div>
-                    <span className="font-medium block">{t.task_name}</span>
-                    <span className="text-xs text-red-400">Deadline: {t.final_deadline}</span>
+                    <span className="font-medium block text-sm">{t.task_name}</span>
+                    <span className="text-[10px] text-red-400">Deadline: {t.final_deadline}</span>
                   </div>
-                  <span className="text-xs px-2 py-1 bg-white text-red-600 rounded-lg border border-red-100">{t.status}</span>
+                  <span className="text-[10px] px-2 py-0.5 bg-white text-red-600 rounded-md border border-red-100">{t.status}</span>
                 </div>
               )) : (
-                <p className="text-sm text-gray-400 italic">No delayed tasks. Great job!</p>
+                <p className="text-sm text-[#86868b] italic">No delayed tasks. Great job!</p>
               )}
             </div>
           </section>
@@ -99,24 +98,24 @@ export const DailyReport: React.FC = () => {
 
         {/* AI Summary */}
         <div className="space-y-6">
-          <div className="bg-[#5A5A40] text-white rounded-3xl p-8 shadow-xl relative overflow-hidden">
+          <div className="bg-[#007aff] text-white rounded-[20px] p-8 shadow-lg relative overflow-hidden">
             <div className="relative z-10">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                   <Sparkles size={24} />
-                  <h3 className="text-xl font-serif font-bold">AI Insights</h3>
+                  <h3 className="text-xl font-bold">AI Insights</h3>
                 </div>
                 <button 
                   onClick={handleGenerateSummary}
                   disabled={isGenerating}
-                  className="p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors disabled:opacity-50"
+                  className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors disabled:opacity-50"
                 >
                   {isGenerating ? <Loader2 size={20} className="animate-spin" /> : <RefreshCw size={20} />}
                 </button>
               </div>
 
               {error && (
-                <div className="mb-4 p-3 bg-red-500/20 rounded-xl text-xs border border-red-500/30">
+                <div className="mb-4 p-3 bg-red-500/20 rounded-lg text-xs border border-red-500/30">
                   {error}
                 </div>
               )}
@@ -126,7 +125,7 @@ export const DailyReport: React.FC = () => {
                   <ReactMarkdown>{summary}</ReactMarkdown>
                   <button 
                     onClick={() => navigator.clipboard.writeText(summary)}
-                    className="mt-6 flex items-center gap-2 text-xs font-bold uppercase tracking-widest opacity-60 hover:opacity-100 transition-opacity"
+                    className="mt-6 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest opacity-60 hover:opacity-100 transition-opacity"
                   >
                     <Copy size={14} />
                     Copy Summary
@@ -134,11 +133,11 @@ export const DailyReport: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-white/60 italic mb-6">Click the refresh icon to generate today's AI summary.</p>
+                  <p className="text-white/60 italic text-sm mb-6">Click the refresh icon to generate today's AI summary.</p>
                   <button 
                     onClick={handleGenerateSummary}
                     disabled={isGenerating}
-                    className="px-6 py-3 bg-white text-[#5A5A40] rounded-xl font-bold shadow-lg hover:bg-gray-100 transition-all disabled:opacity-50"
+                    className="px-6 py-2 bg-white text-[#007aff] rounded-lg font-bold shadow-sm hover:bg-gray-100 transition-all disabled:opacity-50"
                   >
                     {isGenerating ? 'Generating...' : 'Generate Now'}
                   </button>

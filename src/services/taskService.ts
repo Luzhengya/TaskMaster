@@ -5,6 +5,7 @@ import {
   updateDoc, 
   deleteDoc, 
   onSnapshot, 
+  getDocs,
   query, 
   where, 
   serverTimestamp,
@@ -79,7 +80,10 @@ export const taskService = {
   // Parent Tasks
   subscribeParentTasks(callback: (tasks: ParentTask[]) => void) {
     if (!auth.currentUser) return () => {};
-    const q = query(collection(db, 'parent_tasks'), where('owner_id', '==', auth.currentUser.uid));
+    const q = query(
+      collection(db, 'parent_tasks'),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
     return onSnapshot(q, (snapshot) => {
       const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ParentTask));
       callback(tasks);
@@ -87,15 +91,16 @@ export const taskService = {
   },
 
   async addParentTask(task: Omit<ParentTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
-    if (!auth.currentUser) throw new Error('Not authenticated');
+    if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'parent_tasks';
     try {
-      return await addDoc(collection(db, path), {
+      const docRef = await addDoc(collection(db, path), {
         ...task,
         owner_id: auth.currentUser.uid,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
+      return docRef.id;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, path);
     }
@@ -116,9 +121,38 @@ export const taskService = {
   async deleteParentTask(id: string) {
     const path = `parent_tasks/${id}`;
     try {
+      // Delete associated sub-tasks first
+      const q = query(
+        collection(db, 'sub_tasks'),
+        where('parent_task_id', '==', id)
+      );
+      const subTasksSnapshot = await getDocs(q);
+      const deletePromises = subTasksSnapshot.docs.map(d => deleteDoc(d.ref));
+      await Promise.all(deletePromises);
+
+      // Delete parent task
       await deleteDoc(doc(db, 'parent_tasks', id));
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  },
+
+  async clearAllData() {
+    if (!auth.currentUser) throw new Error('User not authenticated');
+    try {
+      // Delete all parent tasks
+      const pq = query(collection(db, 'parent_tasks'), where('owner_id', '==', auth.currentUser.uid));
+      const pSnapshot = await getDocs(pq);
+      const pDeletes = pSnapshot.docs.map(d => deleteDoc(d.ref));
+      
+      // Delete all sub tasks
+      const sq = query(collection(db, 'sub_tasks'), where('owner_id', '==', auth.currentUser.uid));
+      const sSnapshot = await getDocs(sq);
+      const sDeletes = sSnapshot.docs.map(d => deleteDoc(d.ref));
+
+      await Promise.all([...pDeletes, ...sDeletes]);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'all_data');
     }
   },
 
@@ -126,7 +160,7 @@ export const taskService = {
   subscribeAllSubTasks(callback: (tasks: SubTask[]) => void) {
     if (!auth.currentUser) return () => {};
     const q = query(
-      collection(db, 'sub_tasks'), 
+      collection(db, 'sub_tasks'),
       where('owner_id', '==', auth.currentUser.uid)
     );
     return onSnapshot(q, (snapshot) => {
@@ -139,8 +173,8 @@ export const taskService = {
     if (!auth.currentUser) return () => {};
     const q = query(
       collection(db, 'sub_tasks'), 
-      where('owner_id', '==', auth.currentUser.uid),
-      where('parent_task_id', '==', parentTaskId)
+      where('parent_task_id', '==', parentTaskId),
+      where('owner_id', '==', auth.currentUser.uid)
     );
     return onSnapshot(q, (snapshot) => {
       const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SubTask));
@@ -149,15 +183,16 @@ export const taskService = {
   },
 
   async addSubTask(task: Omit<SubTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
-    if (!auth.currentUser) throw new Error('Not authenticated');
+    if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'sub_tasks';
     try {
-      return await addDoc(collection(db, path), {
+      const docRef = await addDoc(collection(db, path), {
         ...task,
         owner_id: auth.currentUser.uid,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
+      return docRef.id;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, path);
     }
@@ -184,10 +219,63 @@ export const taskService = {
     }
   },
 
+  // Task Templates
+  subscribeTaskTemplates(callback: (templates: TaskTemplate[]) => void) {
+    if (!auth.currentUser) return () => {};
+    const q = query(
+      collection(db, 'task_templates'),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
+    return onSnapshot(q, (snapshot) => {
+      const templates = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaskTemplate));
+      callback(templates);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'task_templates'));
+  },
+
+  async addTaskTemplate(template: Omit<TaskTemplate, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+    if (!auth.currentUser) throw new Error('User not authenticated');
+    const path = 'task_templates';
+    try {
+      const docRef = await addDoc(collection(db, path), {
+        ...template,
+        owner_id: auth.currentUser.uid,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+      return docRef.id;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  },
+
+  async updateTaskTemplate(id: string, updates: Partial<TaskTemplate>) {
+    const path = `task_templates/${id}`;
+    try {
+      await updateDoc(doc(db, 'task_templates', id), {
+        ...updates,
+        updated_at: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  },
+
+  async deleteTaskTemplate(id: string) {
+    const path = `task_templates/${id}`;
+    try {
+      await deleteDoc(doc(db, 'task_templates', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  },
+
   // Settings
   subscribeSettings(callback: (settings: UserSettings | null) => void) {
     if (!auth.currentUser) return () => {};
-    const q = query(collection(db, 'settings'), where('owner_id', '==', auth.currentUser.uid));
+    const q = query(
+      collection(db, 'settings'),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
     return onSnapshot(q, (snapshot) => {
       if (snapshot.empty) {
         callback(null);
@@ -199,7 +287,7 @@ export const taskService = {
   },
 
   async updateSettings(id: string | undefined, settings: Partial<UserSettings>) {
-    if (!auth.currentUser) throw new Error('Not authenticated');
+    if (!auth.currentUser) throw new Error('User not authenticated');
     if (id) {
       const path = `settings/${id}`;
       try {

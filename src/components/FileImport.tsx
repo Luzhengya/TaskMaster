@@ -1,144 +1,167 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { FileUp, Loader2, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { Upload, FileCheck, AlertCircle, Loader2 } from 'lucide-react';
 import { taskService } from '../services/taskService';
+import { format } from 'date-fns';
 
 interface FileImportProps {
   onImportComplete: () => void;
 }
 
 export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
-  const [isUploading, setIsUploading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
     if (!file) return;
 
-    setIsUploading(true);
+    setIsImporting(true);
     setError(null);
-    setSuccess(null);
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const data = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-        
-        // Look for "週報" sheet or use the first one
-        const sheetName = workbook.SheetNames.find(name => name.includes('週報')) || workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, range: 4 }) as any[][];
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
-        if (jsonData.length === 0) {
-          throw new Error("No data found in the selected sheet.");
-        }
-
-        const formatDate = (val: any) => {
-          if (!val) return '';
-          if (val instanceof Date) {
-            return val.toISOString().split('T')[0];
+          if (jsonData.length < 2) {
+            throw new Error('Excel file is empty or invalid format.');
           }
-          return String(val);
-        };
 
-        // Map columns based on image:
-        // A(0): System, B(1): Month, C(2): Case (Parent), F(5): Daily Report, G(6): Start, H(7): Due, I(8): Deadline, J(9): Status, K(10): Task, R(17): Planned, S(18): Actual, T(19): Priority, U(20): Remarks
-        const parentTasksMap = new Map<string, string>(); // Name -> ID
+          const rows = jsonData.slice(1);
+          const parentTasksMap = new Map<string, string>();
 
-        for (const row of jsonData) {
-          const caseName = row[2]; // C列: 案件
-          if (!caseName) continue;
+          for (const row of rows) {
+            const caseName = row[5]; // Column F for case name (Project)
+            if (!caseName) continue;
 
-          let parentId = parentTasksMap.get(caseName);
-          if (!parentId) {
-            // Create parent task if not exists
-            const res = await taskService.addParentTask({
-              name: String(caseName),
-              deadline: formatDate(row[8]) || new Date().toISOString().split('T')[0], // Use I列 (Deadline) if available
-              planned_hours: 1
-            });
-            if (res) {
-              parentId = res.id;
-              parentTasksMap.set(caseName, parentId);
+            if (!parentTasksMap.has(caseName)) {
+              const deadlineStr = row[8]; // Column I for final deadline (Project Deadline)
+              const deadline = deadlineStr ? (deadlineStr instanceof Date ? deadlineStr.toISOString().split('T')[0] : String(deadlineStr)) : new Date().toISOString().split('T')[0];
+              
+              const parentId = await taskService.addParentTask({
+                name: String(caseName),
+                deadline: deadline,
+                planned_hours: 1
+              });
+              if (parentId) {
+                parentTasksMap.set(caseName, parentId);
+              }
             }
-          }
 
-          if (parentId) {
+            const parentId = parentTasksMap.get(caseName);
+            if (!parentId) continue;
+            
+            const parseDate = (val: any) => {
+              if (!val) return '';
+              if (val instanceof Date) return val.toISOString().split('T')[0];
+              // Handle string dates if they are in YYYY/MM/DD format
+              const str = String(val);
+              if (str.includes('/')) {
+                return str.replace(/\//g, '-');
+              }
+              return str;
+            };
+
+            const parseNumber = (val: any) => {
+              const n = Number(val);
+              return isNaN(n) ? 0 : n;
+            };
+
             await taskService.addSubTask({
               parent_task_id: parentId,
-              system: String(row[0] || ''),
-              month: String(row[1] || ''),
-              daily_report_date: formatDate(row[5]),
-              start_date: formatDate(row[6]),
-              due_date: formatDate(row[7]),
-              final_deadline: formatDate(row[8]),
-              status: (row[9] || '未着手') as any,
-              task_name: String(row[10] || 'Untitled Task'),
-              planned_hours: Number(row[17] || 0),
-              actual_hours: Number(row[18] || 0),
-              priority: (row[19] || 'B') as any,
-              remarks: String(row[20] || ''),
-              week_number: Number(row[23] || 0),
-              flag: Number(row[24] || 0)
+              system: String(row[0] || ''), // Column A
+              month: String(row[1] || ''), // Column B
+              daily_report_date: parseDate(row[6]), // Column G (日報)
+              start_date: parseDate(row[7]), // Column H (開始日)
+              due_date: parseDate(row[8]), // Column I (期日)
+              final_deadline: parseDate(row[9]), // Column J (期限)
+              status: String(row[10] || '未着手') as any, // Column K (ステータス)
+              task_name: String(row[11] || ''), // Column L (タスク)
+              planned_hours: parseNumber(row[17]), // Column R (予定工数)
+              actual_hours: parseNumber(row[18]), // Column S (実績工数)
+              priority: (row[19] || 'B') as any, // Column T (優先度)
+              remarks: String(row[20] || ''), // Column U (備考)
+              week_number: parseNumber(row[22]), // Column W (週次) - Wait, W is 22? A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7, I=8, J=9, K=10, L=11, M=12, N=13, O=14, P=15, Q=16, R=17, S=18, T=19, U=20, V=21, W=22. Yes.
+              flag: 0
             });
           }
-        }
 
-        setSuccess(`Successfully imported ${jsonData.length} rows.`);
-        onImportComplete();
-      } catch (err: any) {
-        console.error("Import Error:", err);
-        setError(err.message || "Failed to parse file.");
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  };
+          setSuccess(true);
+          setTimeout(() => {
+            onImportComplete();
+          }, 1500);
+        } catch (err: any) {
+          setError(err.message || 'Failed to process Excel file.');
+        } finally {
+          setIsImporting(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      setError(err.message || 'Failed to read file.');
+      setIsImporting(false);
+    }
+  }, [onImportComplete]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls']
+    },
+    multiple: false
+  });
 
   return (
-    <div className="bg-white rounded-3xl p-12 shadow-sm border border-black/5 text-center">
-      <div className="max-w-md mx-auto">
-        <div className="w-20 h-20 bg-[#F5F5F0] rounded-full flex items-center justify-center mx-auto mb-6">
-          {isUploading ? (
-            <Loader2 size={40} className="text-[#5A5A40] animate-spin" />
-          ) : (
-            <Upload size={40} className="text-[#5A5A40]" />
-          )}
-        </div>
+    <div className="w-full">
+      <div
+        {...getRootProps()}
+        className={`relative border-2 border-dashed rounded-3xl p-12 transition-all duration-300 flex flex-col items-center justify-center cursor-pointer ${
+          isDragActive ? 'border-[#007aff] bg-[#007aff]/5' : 'border-black/10 hover:border-[#007aff]/50 hover:bg-black/[0.02]'
+        } ${isImporting ? 'pointer-events-none opacity-50' : ''}`}
+      >
+        <input {...getInputProps()} />
         
-        <h2 className="text-2xl font-serif font-bold mb-2">Import Weekly Report</h2>
-        <p className="text-gray-500 mb-8">
-          Drag and drop your .xlsx or .csv file here, or click to browse.
-          Data will be parsed starting from the 5th row.
-        </p>
-
-        <label className="relative group cursor-pointer inline-block">
-          <input
-            type="file"
-            className="hidden"
-            accept=".xlsx, .xls, .csv"
-            onChange={handleFileUpload}
-            disabled={isUploading}
-          />
-          <div className="px-8 py-4 bg-[#5A5A40] text-white rounded-2xl font-medium shadow-lg group-hover:bg-[#4A4A30] transition-all">
-            {isUploading ? 'Processing...' : 'Select File'}
+        {isImporting ? (
+          <div className="text-center">
+            <Loader2 className="w-12 h-12 text-[#007aff] animate-spin mx-auto mb-4" />
+            <p className="text-lg font-bold">Importing Data...</p>
+            <p className="text-sm text-[#86868b]">Please wait while we process your file</p>
           </div>
-        </label>
-
-        {error && (
-          <div className="mt-6 p-4 bg-red-50 text-red-600 rounded-xl flex items-center gap-3 justify-center">
-            <AlertCircle size={18} />
-            <span className="text-sm font-medium">{error}</span>
+        ) : success ? (
+          <div className="text-center animate-in zoom-in-95">
+            <CheckCircle2 className="w-12 h-12 text-[#28c840] mx-auto mb-4" />
+            <p className="text-lg font-bold">Import Successful!</p>
+            <p className="text-sm text-[#86868b]">Redirecting to task list...</p>
+          </div>
+        ) : (
+          <div className="text-center">
+            <div className="w-16 h-16 bg-[#f5f5f7] rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <FileUp className="w-8 h-8 text-[#007aff]" />
+            </div>
+            <p className="text-lg font-bold mb-2">
+              {isDragActive ? 'Drop your file here' : 'Click or drag Excel file to import'}
+            </p>
+            <p className="text-sm text-[#86868b] mb-6">Supports .xlsx and .xls formats</p>
+            <div className="flex items-center gap-2 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-[#f5f5f7] px-4 py-2 rounded-full">
+              <FileText size={12} />
+              Weekly Report Format Required
+            </div>
           </div>
         )}
 
-        {success && (
-          <div className="mt-6 p-4 bg-green-50 text-green-600 rounded-xl flex items-center gap-3 justify-center">
-            <FileCheck size={18} />
-            <span className="text-sm font-medium">{success}</span>
+        {error && (
+          <div className="absolute -bottom-16 left-0 right-0 p-4 bg-[#fff2f2] text-[#ff3b30] rounded-xl flex items-center gap-3 text-sm border border-[#ff3b30]/10 animate-in slide-in-from-top-2">
+            <AlertCircle size={18} />
+            {error}
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ParentTask, SubTask } from '../types';
-import { Plus, Calendar, Clock, AlertTriangle, ChevronRight, Trash2, Download } from 'lucide-react';
+import { Plus, Calendar, Clock, AlertTriangle, ChevronRight, Trash2, Download, Layers, CheckCircle2, AlertCircle } from 'lucide-react';
 import { taskService } from '../services/taskService';
 import * as XLSX from 'xlsx';
 
@@ -14,6 +14,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask 
   const [newName, setNewName] = useState('');
   const [newDeadline, setNewDeadline] = useState('');
   const [isExporting, setIsExporting] = useState(false);
+  const [allSubTasks, setAllSubTasks] = useState<SubTask[]>([]);
+
+  useEffect(() => {
+    const unsubscribe = taskService.subscribeAllSubTasks(setAllSubTasks);
+    return () => unsubscribe();
+  }, []);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,11 +36,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask 
     setIsAdding(false);
   };
 
+  const handleClearAll = async () => {
+    if (confirm('全てのデータを削除しますか？この操作は取り消せません。')) {
+      await taskService.clearAllData();
+    }
+  };
+
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      // In a real app, we'd fetch all subtasks for all parent tasks
-      // For this demo, we'll just export the parent tasks list as a summary
       const data = parentTasks.map(t => ({
         'Project Name': t.name,
         'Deadline': t.deadline,
@@ -53,69 +63,87 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask 
     }
   };
 
+  const getProjectStats = (parentId: string) => {
+    const subTasks = allSubTasks.filter(st => st.parent_task_id === parentId);
+    if (subTasks.length === 0) return { progress: 0, hasSubTasks: false, hasDelay: false };
+
+    const completed = subTasks.filter(st => st.status === '済').length;
+    const progress = Math.round((completed / subTasks.length) * 100);
+    const hasDelay = subTasks.some(st => st.status.includes('遅れ'));
+
+    return { progress, hasSubTasks: true, hasDelay };
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-serif font-bold">Project Overview</h2>
-          <p className="text-gray-500">Manage your main cases and deadlines</p>
+          <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">プロジェクト</h2>
+          <p className="text-[#86868b]">案件と期限の管理</p>
         </div>
         <div className="flex gap-3">
           <button
+            onClick={handleClearAll}
+            className="mac-button bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 flex items-center gap-2"
+          >
+            <Trash2 size={18} />
+            <span>全データクリア</span>
+          </button>
+          <button
             onClick={handleExport}
             disabled={isExporting}
-            className="flex items-center gap-2 px-6 py-3 bg-white border border-black/5 text-gray-600 rounded-2xl font-medium shadow-sm hover:bg-gray-50 transition-all disabled:opacity-50"
+            className="mac-button mac-button-secondary flex items-center gap-2"
           >
-            <Download size={20} />
-            <span>{isExporting ? 'Exporting...' : 'Weekly Report'}</span>
+            <Download size={18} />
+            <span>{isExporting ? 'Exporting...' : '週報エクスポート'}</span>
           </button>
           <button
             onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 px-6 py-3 bg-[#5A5A40] text-white rounded-2xl font-medium shadow-lg hover:bg-[#4A4A30] transition-all"
+            className="mac-button mac-button-primary flex items-center gap-2"
           >
-            <Plus size={20} />
-            <span>New Project</span>
+            <Plus size={18} />
+            <span>新規プロジェクト</span>
           </button>
         </div>
       </div>
 
       {isAdding && (
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-black/5 animate-in fade-in slide-in-from-top-4">
+        <div className="mac-card p-6 animate-in fade-in slide-in-from-top-4">
           <form onSubmit={handleAdd} className="flex flex-wrap gap-4 items-end">
             <div className="flex-1 min-w-[200px]">
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Project Name</label>
+              <label className="block text-xs font-bold text-[#86868b] uppercase tracking-widest mb-2">プロジェクト名</label>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 border border-black/5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5A5A40]/20"
-                placeholder="e.g. System Upgrade 2026"
+                className="mac-input w-full"
+                placeholder="例: システム更新 2026"
                 required
               />
             </div>
             <div className="w-48">
-              <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Deadline</label>
+              <label className="block text-xs font-bold text-[#86868b] uppercase tracking-widest mb-2">期限</label>
               <input
                 type="date"
                 value={newDeadline}
                 onChange={(e) => setNewDeadline(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-50 border border-black/5 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5A5A40]/20"
+                className="mac-input w-full"
                 required
               />
             </div>
             <div className="flex gap-2">
               <button
                 type="submit"
-                className="px-6 py-3 bg-[#5A5A40] text-white rounded-xl font-medium"
+                className="mac-button mac-button-primary"
               >
-                Create
+                作成
               </button>
               <button
                 type="button"
                 onClick={() => setIsAdding(false)}
-                className="px-6 py-3 bg-gray-100 text-gray-500 rounded-xl font-medium"
+                className="mac-button mac-button-secondary"
               >
-                Cancel
+                キャンセル
               </button>
             </div>
           </form>
@@ -123,50 +151,81 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask 
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {parentTasks.map((task) => (
-          <div
-            key={task.id}
-            className="group bg-white rounded-3xl p-6 shadow-sm border border-black/5 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer relative"
-            onClick={() => onSelectTask(task)}
-          >
-            <div className="flex justify-between items-start mb-4">
-              <div className="p-3 bg-[#F5F5F0] rounded-2xl text-[#5A5A40]">
-                <Calendar size={24} />
+        {parentTasks.map((task) => {
+          const { progress, hasSubTasks, hasDelay } = getProjectStats(task.id);
+          
+          return (
+            <div
+              key={task.id}
+              className="mac-card group hover:shadow-md transition-all cursor-pointer relative"
+              onClick={() => onSelectTask(task)}
+            >
+              <div className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex gap-2">
+                    <div className="p-2 bg-blue-50 text-[#007aff] rounded-xl group-hover:bg-[#007aff] group-hover:text-white transition-colors">
+                      <Calendar size={20} />
+                    </div>
+                    {hasSubTasks && (
+                      <div className="p-2 bg-gray-100 text-gray-600 rounded-xl" title="子タスクあり">
+                        <Layers size={20} />
+                      </div>
+                    )}
+                    {hasDelay && (
+                      <div className="p-2 bg-red-50 text-red-600 rounded-xl animate-pulse" title="遅延あり">
+                        <AlertCircle size={20} />
+                      </div>
+                    )}
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm('このプロジェクトと全ての関連タスクを削除しますか？')) {
+                        taskService.deleteParentTask(task.id);
+                      }
+                    }}
+                    className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+                
+                <h3 className="text-xl font-bold text-[#1d1d1f] mb-1 group-hover:text-[#007aff] transition-colors">
+                  {task.name}
+                </h3>
+                
+                <div className="flex items-center gap-2 text-sm text-[#86868b] mt-2">
+                  <Clock size={14} />
+                  <span>期限: {task.deadline}</span>
+                </div>
+
+                {hasSubTasks && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex justify-between text-xs font-medium">
+                      <span className="text-[#86868b]">進捗率</span>
+                      <span className="text-[#1d1d1f]">{progress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                <div className="pt-4 mt-6 flex items-center justify-between border-t border-gray-100">
+                  <span className="text-xs font-bold text-[#86868b] uppercase tracking-widest">詳細を表示</span>
+                  <ChevronRight size={18} className="text-gray-300 group-hover:text-[#007aff] group-hover:translate-x-1 transition-all" />
+                </div>
               </div>
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (confirm('Delete this project and all its sub-tasks?')) {
-                    taskService.deleteParentTask(task.id);
-                  }
-                }}
-                className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-              >
-                <Trash2 size={18} />
-              </button>
             </div>
-            
-            <h3 className="text-xl font-serif font-bold mb-2 group-hover:text-[#5A5A40] transition-colors">
-              {task.name}
-            </h3>
-            
-            <div className="space-y-3 mt-6">
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <Clock size={16} />
-                <span>Deadline: {task.deadline}</span>
-              </div>
-              
-              <div className="pt-4 flex items-center justify-between border-t border-black/5">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">View Details</span>
-                <ChevronRight size={18} className="text-gray-300 group-hover:text-[#5A5A40] group-hover:translate-x-1 transition-all" />
-              </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
 
         {parentTasks.length === 0 && !isAdding && (
-          <div className="col-span-full py-20 text-center bg-white/50 rounded-3xl border border-dashed border-gray-300">
-            <p className="text-gray-400 italic">No projects found. Create one to get started.</p>
+          <div className="col-span-full py-20 text-center mac-card border-dashed">
+            <p className="text-[#86868b] italic">プロジェクトが見つかりません。新規作成してください。</p>
           </div>
         )}
       </div>

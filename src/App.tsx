@@ -65,26 +65,26 @@ export default function App() {
 
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F5F5F0]">
-        <Loader2 className="animate-spin text-[#5A5A40]" size={40} />
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F5F7]">
+        <Loader2 className="animate-spin text-[#007aff]" size={40} />
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F5F5F0] p-4">
-        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-12 text-center border border-black/5">
-          <div className="w-20 h-20 bg-[#F5F5F0] rounded-full flex items-center justify-center mx-auto mb-8">
-            <LogIn size={40} className="text-[#5A5A40]" />
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F5F7] p-4">
+        <div className="max-w-md w-full mac-card p-12 text-center">
+          <div className="w-20 h-20 bg-[#F5F5F7] rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner">
+            <LogIn size={40} className="text-[#007aff]" />
           </div>
-          <h1 className="text-4xl font-serif font-bold text-[#1A1A1A] mb-4">TaskMaster AI</h1>
-          <p className="text-gray-500 mb-10 leading-relaxed">
-            Your personal productivity hub. Manage tasks, import reports, and get AI-powered summaries.
+          <h1 className="text-4xl font-bold text-[#1d1d1f] mb-4 tracking-tight">TaskMaster</h1>
+          <p className="text-[#86868b] mb-10 leading-relaxed text-sm">
+            Your personal productivity hub. Manage tasks, import reports, and get AI-powered summaries with a clean macOS experience.
           </p>
           <button
             onClick={handleLogin}
-            className="w-full py-4 bg-[#5A5A40] text-white rounded-2xl font-bold shadow-xl hover:bg-[#4A4A30] hover:-translate-y-1 transition-all flex items-center justify-center gap-3"
+            className="w-full py-4 bg-[#007aff] text-white rounded-2xl font-bold shadow-lg hover:bg-[#0062cc] hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-3"
           >
             <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
             Sign in with Google
@@ -115,9 +115,9 @@ export default function App() {
         return <Settings />;
       case 'tasks':
         return (
-          <div className="p-12 text-center bg-white rounded-3xl border border-black/5">
-            <h3 className="text-xl font-serif font-bold mb-2">Task List View</h3>
-            <p className="text-gray-400">Select a project from the Dashboard to manage detailed tasks.</p>
+          <div className="p-12 text-center mac-card">
+            <h3 className="text-xl font-bold mb-2 text-[#1d1d1f]">タスク一覧</h3>
+            <p className="text-[#86868b] text-sm">案件一覧からプロジェクトを選択して詳細タスクを管理してください。</p>
           </div>
         );
       default:
