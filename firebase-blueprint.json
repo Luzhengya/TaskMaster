@@ -7,7 +7,12 @@
       "properties": {
         "name": { "type": "string", "description": "Case name" },
         "deadline": { "type": "string", "format": "date", "description": "Main deadline (Honban-bi)" },
+        "due_date": { "type": "string", "format": "date" },
         "planned_hours": { "type": "number", "description": "Total planned hours" },
+        "actual_hours": { "type": "number" },
+        "progress": { "type": "number" },
+        "is_hidden": { "type": "boolean" },
+        "order": { "type": "integer" },
         "created_at": { "type": "string", "format": "date-time" },
         "updated_at": { "type": "string", "format": "date-time" },
         "owner_id": { "type": "string", "description": "User ID of the owner" }
@@ -26,12 +31,16 @@
         "start_date": { "type": "string", "format": "date" },
         "due_date": { "type": "string", "format": "date" },
         "final_deadline": { "type": "string", "format": "date" },
-        "status": { "type": "string", "enum": ["遅れ", "済", "進行中", "未着手", "保留", "着手遅れ", "期限遅れ"] },
+        "status": { "type": "string", "enum": ["遅れ", "済", "進行中", "未着手", "保留", "着手遅れ", "期限遅れ", "着着手遅れ"] },
         "task_name": { "type": "string" },
         "planned_hours": { "type": "number" },
         "actual_hours": { "type": "number" },
         "priority": { "type": "string", "enum": ["A", "B", "C"] },
         "remarks": { "type": "string" },
+        "is_in_report": { "type": "boolean" },
+        "order": { "type": "integer" },
+        "weekday": { "type": "string" },
+        "week": { "type": "string" },
         "week_number": { "type": "integer" },
         "flag": { "type": "integer" },
         "owner_id": { "type": "string" },
@@ -46,8 +55,10 @@
       "type": "object",
       "properties": {
         "name": { "type": "string" },
+        "order": { "type": "integer" },
         "owner_id": { "type": "string" },
-        "created_at": { "type": "string", "format": "date-time" }
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "owner_id"]
     },
@@ -57,11 +68,16 @@
       "type": "object",
       "properties": {
         "template_id": { "type": "string" },
+        "system": { "type": "string" },
         "task_name": { "type": "string" },
+        "status": { "type": "string" },
         "planned_hours": { "type": "number" },
         "priority": { "type": "string" },
         "remarks": { "type": "string" },
-        "owner_id": { "type": "string" }
+        "order": { "type": "integer" },
+        "owner_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
       },
       "required": ["template_id", "task_name", "owner_id"]
     },

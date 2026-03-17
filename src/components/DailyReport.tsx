@@ -12,7 +12,11 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
-export const DailyReport: React.FC = () => {
+interface DailyReportProps {
+  onJumpToTask: (task: SubTask) => void;
+}
+
+export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
   const [allSubTasks, setAllSubTasks] = useState<SubTask[]>([]);
   const [summary, setSummary] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -25,9 +29,10 @@ export const DailyReport: React.FC = () => {
 
   const today = new Date().toISOString().split('T')[0];
   
-  const todayTasks = allSubTasks.filter(t => t.daily_report_date === today);
-  const unfinishedTasks = allSubTasks.filter(t => t.status !== '済');
-  const delayedTasks = allSubTasks.filter(t => 
+  const reportTasks = allSubTasks.filter(t => t.is_in_report);
+  const todayTasks = reportTasks.filter(t => t.daily_report_date === today);
+  const unfinishedTasks = reportTasks.filter(t => t.status !== '済');
+  const delayedTasks = reportTasks.filter(t => 
     t.status.includes('遅れ') || (t.final_deadline && t.final_deadline < today && t.status !== '済')
   );
 
@@ -65,8 +70,13 @@ export const DailyReport: React.FC = () => {
             </div>
             <div className="space-y-2">
               {todayTasks.length > 0 ? todayTasks.map(t => (
-                <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
-                  <span className="font-medium text-sm">{t.task_name}</span>
+                <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 group">
+                  <button 
+                    onClick={() => onJumpToTask(t)}
+                    className="font-medium text-sm text-left hover:text-[#007aff] transition-colors"
+                  >
+                    {t.task_name}
+                  </button>
                   <span className="text-[10px] px-2 py-0.5 bg-white rounded-md border border-gray-200 text-[#86868b]">{t.status}</span>
                 </div>
               )) : (
@@ -82,9 +92,14 @@ export const DailyReport: React.FC = () => {
             </div>
             <div className="space-y-2">
               {delayedTasks.length > 0 ? delayedTasks.map(t => (
-                <div key={t.id} className="flex items-center justify-between p-3 bg-red-50/50 rounded-xl border border-red-100">
+                <div key={t.id} className="flex items-center justify-between p-3 bg-red-50/50 rounded-xl border border-red-100 group">
                   <div>
-                    <span className="font-medium block text-sm">{t.task_name}</span>
+                    <button 
+                      onClick={() => onJumpToTask(t)}
+                      className="font-medium block text-sm text-left hover:text-[#007aff] transition-colors"
+                    >
+                      {t.task_name}
+                    </button>
                     <span className="text-[10px] text-red-400">Deadline: {t.final_deadline}</span>
                   </div>
                   <span className="text-[10px] px-2 py-0.5 bg-white text-red-600 rounded-md border border-red-100">{t.status}</span>

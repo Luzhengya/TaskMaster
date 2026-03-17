@@ -8,7 +8,9 @@ import {
   Bell, 
   Plus, 
   Trash2,
-  CheckCircle2
+  CheckCircle2,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 
 export const Settings: React.FC = () => {
@@ -72,16 +74,17 @@ export const Settings: React.FC = () => {
             <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
               <Cpu size={24} />
             </div>
-            <h3 className="text-xl font-bold text-[#1d1d1f]">AI Configuration</h3>
+            <h3 className="text-xl font-bold text-[#1d1d1f]">AI設定</h3>
           </div>
           
           <div className="space-y-4">
-            <p className="text-sm text-[#86868b] mb-4">
-              Configure your preferred AI models for task summarization.
-            </p>
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-100">
-              <p className="text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">Active Model</p>
-              <p className="font-medium text-sm">Gemini 3 Flash (Default)</p>
+            <div className="p-4 bg-black/[0.02] rounded-xl border border-black/5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-[#1d1d1f]">使用モデル</span>
+                <span className="px-2 py-0.5 bg-green-100 text-green-600 text-[10px] font-bold rounded-full">アクティブ</span>
+              </div>
+              <p className="text-sm font-medium text-[#1d1d1f]">Gemini 3 Flash</p>
+              <p className="text-[10px] text-[#86868b] mt-1">タスクの要約と分析に使用されます。</p>
             </div>
           </div>
         </section>
@@ -92,12 +95,49 @@ export const Settings: React.FC = () => {
             <div className="p-2 bg-blue-50 text-[#007aff] rounded-xl">
               <Palette size={24} />
             </div>
-            <h3 className="text-xl font-bold text-[#1d1d1f]">UI Preferences</h3>
+            <h3 className="text-xl font-bold text-[#1d1d1f]">UI設定</h3>
           </div>
           
           <div className="space-y-6">
-            <div>
-              <label className="block text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-3">Table Opacity</label>
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-xs font-bold text-[#1d1d1f] mb-1">表示形式</label>
+                <p className="text-[10px] text-[#86868b]">ダッシュボードのレイアウトを選択</p>
+              </div>
+              <div className="flex p-1 bg-gray-100 rounded-xl">
+                <button
+                  onClick={() => setSettings({
+                    ...settings,
+                    ui_preferences: { ...settings.ui_preferences, view: 'grid' }
+                  })}
+                  className={`p-2 rounded-lg transition-all ${
+                    settings.ui_preferences.view === 'grid' 
+                      ? 'bg-white text-[#007aff] shadow-sm' 
+                      : 'text-[#86868b] hover:text-[#1d1d1f]'
+                  }`}
+                  title="グリッド表示"
+                >
+                  <LayoutGrid size={18} />
+                </button>
+                <button
+                  onClick={() => setSettings({
+                    ...settings,
+                    ui_preferences: { ...settings.ui_preferences, view: 'table' }
+                  })}
+                  className={`p-2 rounded-lg transition-all ${
+                    settings.ui_preferences.view === 'table' 
+                      ? 'bg-white text-[#007aff] shadow-sm' 
+                      : 'text-[#86868b] hover:text-[#1d1d1f]'
+                  }`}
+                  title="リスト表示"
+                >
+                  <List size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-black/5">
+              <label className="block text-xs font-bold text-[#1d1d1f] mb-3">テーブルの不透明度</label>
               <input 
                 type="range" 
                 min="0.5" 
@@ -143,25 +183,30 @@ export const Settings: React.FC = () => {
             <div className="p-2 bg-orange-50 text-orange-600 rounded-xl">
               <Bell size={24} />
             </div>
-            <h3 className="text-xl font-bold text-[#1d1d1f]">Notification Rules</h3>
+            <h3 className="text-xl font-bold text-[#1d1d1f]">通知設定</h3>
           </div>
           
           <div className="space-y-4">
             {settings.notification_rules.map((rule, index) => (
-              <div key={rule.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                <input 
-                  type="checkbox" 
-                  checked={rule.enabled}
-                  onChange={(e) => {
-                    const newRules = [...settings.notification_rules];
-                    newRules[index].enabled = e.target.checked;
-                    setSettings({ ...settings, notification_rules: newRules });
-                  }}
-                  className="w-5 h-5 accent-[#007aff]"
-                />
-                <div className="flex-1">
-                  <p className="font-medium text-sm">Daily Summary at {rule.time}</p>
-                  <p className="text-[10px] text-[#86868b]">Includes: {rule.content_types.join(', ')}</p>
+              <div key={rule.id} className="flex items-center gap-4 p-4 bg-black/[0.02] rounded-xl border border-black/5">
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="sr-only peer"
+                      checked={rule.enabled}
+                      onChange={(e) => {
+                        const newRules = [...settings.notification_rules];
+                        newRules[index].enabled = e.target.checked;
+                        setSettings({ ...settings, notification_rules: newRules });
+                      }}
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#007aff]"></div>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-[#1d1d1f]">デイリーサマリー ({rule.time})</p>
+                    <p className="text-[10px] text-[#86868b]">内容: {rule.content_types.join(', ')}</p>
+                  </div>
                 </div>
                 <button className="p-2 text-gray-300 hover:text-red-500 transition-colors">
                   <Trash2 size={18} />
@@ -169,9 +214,9 @@ export const Settings: React.FC = () => {
               </div>
             ))}
             
-            <button className="w-full py-4 border-2 border-dashed border-gray-200 rounded-xl text-[#86868b] font-medium hover:border-[#007aff] hover:text-[#007aff] transition-all flex items-center justify-center gap-2 text-sm">
+            <button className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-[#86868b] font-bold hover:border-[#007aff] hover:text-[#007aff] transition-all flex items-center justify-center gap-2 text-sm">
               <Plus size={18} />
-              <span>Add Notification Rule</span>
+              <span>新しい通知ルールを追加</span>
             </button>
           </div>
         </section>

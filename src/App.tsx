@@ -4,6 +4,8 @@ import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from 'firebas
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { SubTaskManagement } from './components/SubTaskManagement';
+import { TemplateManagement } from './components/TemplateManagement';
+import { History } from './components/History';
 import { FileImport } from './components/FileImport';
 import { DailyReport } from './components/DailyReport';
 import { Settings } from './components/Settings';
@@ -17,6 +19,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedParentTask, setSelectedParentTask] = useState<ParentTask | null>(null);
+  const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
   const [parentTasks, setParentTasks] = useState<ParentTask[]>([]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
@@ -99,18 +102,36 @@ export default function App() {
       return (
         <SubTaskManagement 
           parentTask={selectedParentTask} 
-          onBack={() => setSelectedParentTask(null)} 
+          onBack={() => {
+            setSelectedParentTask(null);
+            setHighlightTaskId(null);
+          }} 
+          highlightTaskId={highlightTaskId}
         />
       );
     }
 
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard parentTasks={parentTasks} onSelectTask={setSelectedParentTask} />;
+        return <Dashboard parentTasks={parentTasks} onSelectTask={setSelectedParentTask} settings={settings} />;
+      case 'templates':
+        return <TemplateManagement />;
+      case 'history':
+        return <History onSelectTask={setSelectedParentTask} settings={settings} />;
       case 'import':
         return <FileImport onImportComplete={() => setActiveTab('dashboard')} />;
       case 'reports':
-        return <DailyReport />;
+        return (
+          <DailyReport 
+            onJumpToTask={(task) => {
+              const parent = parentTasks.find(p => p.id === task.parent_task_id);
+              if (parent) {
+                setSelectedParentTask(parent);
+                setHighlightTaskId(task.id);
+              }
+            }} 
+          />
+        );
       case 'settings':
         return <Settings />;
       case 'tasks':
@@ -121,7 +142,7 @@ export default function App() {
           </div>
         );
       default:
-        return <Dashboard parentTasks={parentTasks} onSelectTask={setSelectedParentTask} />;
+        return <Dashboard parentTasks={parentTasks} onSelectTask={setSelectedParentTask} settings={settings} />;
     }
   };
 

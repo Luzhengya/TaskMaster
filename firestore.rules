@@ -29,16 +29,57 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidParentTask(data) {
-      return data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+      return data.name is string && data.name.size() <= 200 &&
              data.deadline is string &&
              data.planned_hours is number &&
-             data.owner_id == request.auth.uid;
+             data.owner_id == request.auth.uid &&
+             (!('is_hidden' in data) || data.is_hidden is bool) &&
+             (!('order' in data) || data.order is number) &&
+             (!('due_date' in data) || data.due_date is string) &&
+             (!('actual_hours' in data) || data.actual_hours is number) &&
+             (!('progress' in data) || data.progress is number) &&
+             hasOnlyAllowedFields(['name', 'deadline', 'due_date', 'planned_hours', 'actual_hours', 'progress', 'is_hidden', 'order', 'owner_id', 'created_at', 'updated_at']);
     }
 
     function isValidSubTask(data) {
-      return data.task_name is string && data.task_name.size() > 0 &&
+      return data.task_name is string && data.task_name.size() <= 1000 &&
              data.parent_task_id is string &&
-             data.owner_id == request.auth.uid;
+             data.owner_id == request.auth.uid &&
+             (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ', '着着手遅れ']) &&
+             (data.priority in ['A', 'B', 'C']) &&
+             data.planned_hours is number &&
+             data.actual_hours is number &&
+             (!('is_in_report' in data) || data.is_in_report is bool) &&
+             (!('order' in data) || data.order is number) &&
+             (!('weekday' in data) || data.weekday is string) &&
+             (!('week' in data) || data.week is string) &&
+             (!('week_number' in data) || data.week_number is number) &&
+             (!('flag' in data) || data.flag is number) &&
+             hasOnlyAllowedFields([
+               'parent_task_id', 'system', 'month', 'daily_report_date', 
+               'start_date', 'due_date', 'final_deadline', 'status', 
+               'task_name', 'planned_hours', 'actual_hours', 'priority', 
+               'remarks', 'is_in_report', 'order', 'weekday', 'week', 
+               'week_number', 'flag', 'owner_id', 'created_at', 'updated_at'
+             ]);
+    }
+
+    function isValidTaskTemplate(data) {
+      return data.name is string && data.name.size() <= 200 &&
+             data.owner_id == request.auth.uid &&
+             (!('order' in data) || data.order is number) &&
+             hasOnlyAllowedFields(['name', 'order', 'owner_id', 'created_at', 'updated_at']);
+    }
+
+    function isValidTemplateItem(data) {
+      return data.task_name is string && data.task_name.size() <= 1000 &&
+             data.template_id is string &&
+             data.owner_id == request.auth.uid &&
+             (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ', '着着手遅れ']) &&
+             (data.priority in ['A', 'B', 'C']) &&
+             data.planned_hours is number &&
+             (!('order' in data) || data.order is number) &&
+             hasOnlyAllowedFields(['template_id', 'system', 'task_name', 'status', 'planned_hours', 'priority', 'remarks', 'order', 'owner_id', 'created_at', 'updated_at']);
     }
 
     // ===============================================================
@@ -51,29 +92,29 @@ service cloud.firestore {
 
     match /parent_tasks/{taskId} {
       allow read: if isDocOwner() || isAdmin();
-      allow create: if isAuthenticated() && isValidParentTask(request.resource.data);
+      allow create: if (isAuthenticated() && isValidParentTask(request.resource.data)) || isAdmin();
       allow update: if (isDocOwner() || isAdmin()) && isValidParentTask(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
     }
 
     match /sub_tasks/{subTaskId} {
       allow read: if isDocOwner() || isAdmin();
-      allow create: if isAuthenticated() && isValidSubTask(request.resource.data);
+      allow create: if (isAuthenticated() && isValidSubTask(request.resource.data)) || isAdmin();
       allow update: if (isDocOwner() || isAdmin()) && isValidSubTask(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
     }
 
     match /task_templates/{templateId} {
       allow read: if isDocOwner() || isAdmin();
-      allow create: if isAuthenticated() && request.resource.data.owner_id == request.auth.uid;
-      allow update: if (isDocOwner() || isAdmin()) && request.resource.data.owner_id == request.auth.uid;
+      allow create: if (isAuthenticated() && isValidTaskTemplate(request.resource.data)) || isAdmin();
+      allow update: if (isDocOwner() || isAdmin()) && isValidTaskTemplate(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
     }
 
     match /template_items/{itemId} {
       allow read: if isDocOwner() || isAdmin();
-      allow create: if isAuthenticated() && request.resource.data.owner_id == request.auth.uid;
-      allow update: if (isDocOwner() || isAdmin()) && request.resource.data.owner_id == request.auth.uid;
+      allow create: if (isAuthenticated() && isValidTemplateItem(request.resource.data)) || isAdmin();
+      allow update: if (isDocOwner() || isAdmin()) && isValidTemplateItem(request.resource.data);
       allow delete: if isDocOwner() || isAdmin();
     }
 

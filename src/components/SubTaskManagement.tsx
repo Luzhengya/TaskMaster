@@ -8,7 +8,15 @@ import {
   Trash2, 
   AlertCircle, 
   ChevronLeft,
+  GripVertical,
+  CheckSquare,
+  Square,
+  Type,
+  Columns
 } from 'lucide-react';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+import { Resizable, ResizableBox } from 'react-resizable';
+import 'react-resizable/css/styles.css';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -19,16 +27,67 @@ function cn(...inputs: ClassValue[]) {
 interface SubTaskManagementProps {
   parentTask: ParentTask;
   onBack: () => void;
+  highlightTaskId?: string | null;
 }
 
-export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask, onBack }) => {
+export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask, onBack, highlightTaskId }) => {
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
-  const [isLocked, setIsLocked] = useState(true);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [delayModalTask, setDelayModalTask] = useState<SubTask | null>(null);
+  const [delayReason, setDelayReason] = useState('他の作業の優先度が高くのため');
+  const [impactAssessment, setImpactAssessment] = useState<'小' | '中' | '大'>('小');
+
+  // Table features state
+  const [isWordWrap, setIsWordWrap] = useState(false);
+  const [frozenColumns, setFrozenColumns] = useState<number[]>([0, 1, 2, 3]); // Default frozen columns
+  const [columnWidths, setColumnWidths] = useState<Record<number, number>>({
+    0: 40,  // Drag
+    1: 50,  // Report
+    2: 120, // System
+    3: 250, // Task Name
+    4: 100, // Status
+    5: 120, // Start
+    6: 120, // Due
+    7: 120, // Deadline
+    8: 80,  // Planned
+    9: 80,  // Actual
+    10: 80, // Priority
+    11: 200,// Remarks
+    12: 60  // Actions
+  });
+
+  const onResize = (index: number) => (e: any, { size }: any) => {
+    setColumnWidths(prev => ({
+      ...prev,
+      [index]: size.width
+    }));
+  };
+
+  const toggleFrozenColumn = (index: number) => {
+    setFrozenColumns(prev => 
+      prev.includes(index) 
+        ? prev.filter(i => i !== index)
+        : [...prev, index].sort((a, b) => a - b)
+    );
+  };
 
   useEffect(() => {
     const unsubscribe = taskService.subscribeSubTasks(parentTask.id, setSubTasks);
     return () => unsubscribe();
   }, [parentTask.id]);
+
+  useEffect(() => {
+    if (highlightTaskId && subTasks.length > 0) {
+      const element = document.getElementById(`task-${highlightTaskId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('bg-blue-50/50');
+        setTimeout(() => {
+          element.classList.remove('bg-blue-50/50');
+        }, 3000);
+      }
+    }
+  }, [highlightTaskId, subTasks]);
 
   const handleAddRow = async () => {
     await taskService.addSubTask({
@@ -51,21 +110,127 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   };
 
   const handleUpdate = async (id: string, updates: Partial<SubTask>) => {
-    await taskService.updateSubTask(id, updates);
+    const task = subTasks.find(st => st.id === id);
+    if (!task) return;
+
+    const newUpdates = { ...updates };
+    
+    // Auto-calculate deadline if due_date or planned_hours changes
+    if ('due_date' in updates || 'planned_hours' in updates) {
+      const dueDate = updates.due_date ?? task.due_date;
+      const plannedHours = updates.planned_hours ?? task.planned_hours;
+      if (dueDate && plannedHours > 0) {
+        newUpdates.final_deadline = taskService.calculateDeadline(dueDate, plannedHours);
+      }
+    }
+
+    if ('status' in updates && updates.status === '遅れ') {
+      setDelayModalTask(task);
+      setDelayReason('他の作業の優先度が高くのため');
+      setImpactAssessment('小');
+    }
+
+    await taskService.updateSubTask(id, newUpdates);
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Delete this task?')) {
-      await taskService.deleteSubTask(id);
+  const handleDelaySubmit = async () => {
+    if (!delayModalTask) return;
+    await taskService.updateSubTask(delayModalTask.id, {
+      delay_reason: delayReason,
+      impact_assessment: impactAssessment
+    });
+    setDelayModalTask(null);
+  };
+
+  const onDragEnd = async (result: DropResult) => {
+    if (!result.destination) return;
+    
+    const items = Array.from(subTasks);
+    const [reorderedItem] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, reorderedItem);
+    
+    const updatePromises = items.map((item, index) => 
+      taskService.updateSubTask(item.id, { order: index })
+    );
+    await Promise.all(updatePromises);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await taskService.deleteSubTask(deleteId);
+      setDeleteId(null);
+    } catch (err) {
+      console.error('Failed to delete sub-task:', err);
     }
+  };
+
+  const getFrozenLeft = (index: number) => {
+    if (!frozenColumns.includes(index)) return undefined;
+    let left = 0;
+    for (let i = 0; i < index; i++) {
+      if (frozenColumns.includes(i)) {
+        left += columnWidths[i] || 0;
+      }
+    }
+    return left;
+  };
+
+  const ResizableTh = ({ index, title, children }: { index: number, title?: string, children?: React.ReactNode }) => {
+    const isFrozen = frozenColumns.includes(index);
+    const left = getFrozenLeft(index);
+    
+    return (
+      <Resizable
+        width={columnWidths[index]}
+        height={0}
+        onResize={onResize(index)}
+        draggableOpts={{ enableUserSelectHack: false }}
+        handle={
+          <span
+            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#007aff]/30 transition-colors z-30"
+            onClick={(e) => e.stopPropagation()}
+          />
+        }
+      >
+        <th
+          style={{ 
+            width: columnWidths[index],
+            minWidth: columnWidths[index],
+            left: isFrozen ? left : undefined,
+            position: isFrozen ? 'sticky' : 'relative',
+            zIndex: isFrozen ? 40 : 10
+          }}
+          className={cn(
+            "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group",
+            isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
+          )}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate" title={title}>{children}</span>
+            <button
+              onClick={() => toggleFrozenColumn(index)}
+              className={cn(
+                "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5",
+                isFrozen ? "text-[#007aff] opacity-100" : "text-gray-400"
+              )}
+              title={isFrozen ? "固定を解除" : "列を固定"}
+            >
+              <Columns size={10} />
+            </button>
+          </div>
+        </th>
+      </Resizable>
+    );
   };
 
   const statusColors: Record<SubTaskStatus, string> = {
     '遅れ': 'bg-red-100 text-red-700',
-    '済': 'bg-green-100 text-green-700',
+    '済': 'bg-gray-100 text-gray-600',
     '進行中': 'bg-blue-100 text-blue-700',
     '未着手': 'bg-gray-100 text-gray-700',
     '保留': 'bg-yellow-100 text-yellow-700',
+    '着手遅れ': 'bg-orange-50 text-orange-600',
     '着着手遅れ': 'bg-orange-100 text-orange-700',
     '期限遅れ': 'bg-red-200 text-red-800',
   };
@@ -83,196 +248,347 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <button
-            onClick={() => setIsLocked(!isLocked)}
+            onClick={() => setIsWordWrap(!isWordWrap)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all",
-              isLocked ? "bg-gray-200 text-gray-600" : "bg-[#007aff] text-white shadow-sm"
+              "mac-button mac-button-secondary flex items-center gap-2",
+              isWordWrap && "bg-gray-200 border-[#007aff]/30 text-[#007aff]"
             )}
+            title="自動改行の切り替え"
           >
-            {isLocked ? <Lock size={18} /> : <Unlock size={18} />}
-            <span>{isLocked ? '閲覧モード' : '編集モード'}</span>
+            <Type size={18} />
+            <span>{isWordWrap ? '折り返しあり' : '自動改行'}</span>
           </button>
-          {!isLocked && (
-            <button
-              onClick={handleAddRow}
-              className="mac-button mac-button-secondary flex items-center gap-2"
-            >
-              <Plus size={18} />
-              <span>タスク追加</span>
-            </button>
-          )}
+          <button
+            onClick={handleAddRow}
+            className="mac-button mac-button-secondary flex items-center gap-2"
+          >
+            <Plus size={18} />
+            <span>タスク追加</span>
+          </button>
         </div>
       </div>
 
-      <div className="mac-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[1200px]">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">システム</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">タスク名</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">ステータス</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">開始日</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">期日</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">期限</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest w-20">予定</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest w-20">実績</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">優先度</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">備考</th>
-                {!isLocked && <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">操作</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {subTasks.map((task) => {
-                const isOverdue = task.final_deadline && task.final_deadline > parentTask.deadline;
-                const isDelayed = task.status.includes('遅れ');
-                
-                return (
-                  <tr 
-                    key={task.id} 
-                    className={cn(
-                      "group transition-colors",
-                      isOverdue ? "bg-red-50" : "hover:bg-gray-50"
-                    )}
+      <div className="mac-card overflow-hidden flex flex-col h-[calc(100vh-250px)]">
+        <div className="overflow-auto flex-1 relative">
+          <DragDropContext onDragEnd={onDragEnd}>
+            <table className="w-full text-left border-separate border-spacing-0">
+              <thead className="sticky top-0 z-50">
+                <tr className="bg-gray-50">
+                  <ResizableTh index={0} />
+                  <ResizableTh index={1} title="日報">日報</ResizableTh>
+                  <ResizableTh index={2} title="システム">システム</ResizableTh>
+                  <ResizableTh index={3} title="タスク名">タスク名</ResizableTh>
+                  <ResizableTh index={4} title="ステータス">ステータス</ResizableTh>
+                  <ResizableTh index={5} title="開始日">開始日</ResizableTh>
+                  <ResizableTh index={6} title="期日">期日</ResizableTh>
+                  <ResizableTh index={7} title="期限">期限</ResizableTh>
+                  <ResizableTh index={8} title="予定">予定</ResizableTh>
+                  <ResizableTh index={9} title="実績">実績</ResizableTh>
+                  <ResizableTh index={10} title="優先度">優先度</ResizableTh>
+                  <ResizableTh index={11} title="備考">備考</ResizableTh>
+                  <ResizableTh index={12} title="操作">操作</ResizableTh>
+                </tr>
+              </thead>
+              <Droppable droppableId="subtasks-table">
+                {(provided) => (
+                  <tbody 
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                    className="divide-y divide-gray-50"
                   >
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={task.system}
-                        disabled={isLocked}
-                        onChange={(e) => handleUpdate(task.id, { system: e.target.value })}
-                        className="w-full bg-transparent focus:outline-none disabled:cursor-default text-sm"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={task.task_name}
-                          disabled={isLocked}
-                          onChange={(e) => handleUpdate(task.id, { task_name: e.target.value })}
-                          className="w-full bg-transparent font-medium focus:outline-none disabled:cursor-default text-sm"
-                        />
-                        {isDelayed && <AlertCircle size={14} className="text-red-500 animate-pulse" />}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2">
-                      <select
-                        value={task.status}
-                        disabled={isLocked}
-                        onChange={(e) => handleUpdate(task.id, { status: e.target.value as SubTaskStatus })}
-                        className={cn(
-                          "px-2 py-0.5 rounded-md text-[10px] font-bold focus:outline-none disabled:appearance-none",
-                          statusColors[task.status]
-                        )}
-                      >
-                        {Object.keys(statusColors).map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="date"
-                        value={task.start_date || ''}
-                        disabled={isLocked}
-                        onChange={(e) => handleUpdate(task.id, { start_date: e.target.value })}
-                        className="bg-transparent focus:outline-none disabled:appearance-none text-sm"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="date"
-                        value={task.due_date || ''}
-                        disabled={isLocked}
-                        onChange={(e) => handleUpdate(task.id, { due_date: e.target.value })}
-                        className="bg-transparent focus:outline-none disabled:appearance-none text-sm"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={task.final_deadline}
-                          disabled={isLocked}
-                          onChange={(e) => handleUpdate(task.id, { final_deadline: e.target.value })}
-                          className={cn(
-                            "bg-transparent focus:outline-none disabled:appearance-none text-sm",
-                            isOverdue && "text-red-600 font-bold"
+                    {subTasks.map((task, index) => {
+                      const isOverdue = task.final_deadline && task.final_deadline > parentTask.deadline && task.status !== '済';
+                      const isDelayed = task.status.includes('遅れ');
+                      const isCompleted = task.status === '済';
+                      
+                      return (
+                        <Draggable key={task.id} draggableId={task.id} index={index}>
+                          {(provided) => (
+                            <tr 
+                              id={`task-${task.id}`}
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              className={cn(
+                                "group transition-colors",
+                                isCompleted ? "bg-gray-50/50 opacity-60" : isOverdue ? "bg-red-50" : "hover:bg-gray-50",
+                                highlightTaskId === task.id && "ring-2 ring-[#007aff] ring-inset"
+                              )}
+                            >
+                              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(colIdx => {
+                                const isFrozen = frozenColumns.includes(colIdx);
+                                const left = getFrozenLeft(colIdx);
+                                const width = columnWidths[colIdx];
+                                
+                                return (
+                                  <td 
+                                    key={colIdx}
+                                    style={{ 
+                                      width,
+                                      minWidth: width,
+                                      maxWidth: width,
+                                      left: isFrozen ? left : undefined,
+                                      position: isFrozen ? 'sticky' : 'relative',
+                                      zIndex: isFrozen ? 30 : 1
+                                    }}
+                                    className={cn(
+                                      "px-4 py-2 border-b border-gray-50 transition-colors",
+                                      isFrozen && (isCompleted ? "bg-gray-100/50" : isOverdue ? "bg-red-50" : "bg-white group-hover:bg-gray-50"),
+                                      isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
+                                    )}
+                                  >
+                                    {colIdx === 0 && (
+                                      <div {...provided.dragHandleProps} className="text-gray-300 hover:text-gray-600">
+                                        <GripVertical size={16} />
+                                      </div>
+                                    )}
+                                    {colIdx === 1 && (
+                                      <div className="text-center">
+                                        <button
+                                          onClick={() => handleUpdate(task.id, { is_in_report: !task.is_in_report })}
+                                          className={cn(
+                                            "p-1 rounded transition-colors",
+                                            task.is_in_report ? "text-[#007aff]" : "text-gray-300 hover:text-gray-400"
+                                          )}
+                                        >
+                                          {task.is_in_report ? <CheckSquare size={18} /> : <Square size={18} />}
+                                        </button>
+                                      </div>
+                                    )}
+                                    {colIdx === 2 && (
+                                      <input
+                                        type="text"
+                                        value={task.system}
+                                        onChange={(e) => handleUpdate(task.id, { system: e.target.value })}
+                                        className={cn(
+                                          "w-full bg-transparent focus:outline-none text-sm",
+                                          isWordWrap ? "whitespace-normal break-words" : "truncate"
+                                        )}
+                                      />
+                                    )}
+                                    {colIdx === 3 && (
+                                      <div className="flex items-center gap-2">
+                                        <textarea
+                                          rows={isWordWrap ? 2 : 1}
+                                          value={task.task_name}
+                                          onChange={(e) => handleUpdate(task.id, { task_name: e.target.value })}
+                                          className={cn(
+                                            "w-full bg-transparent font-medium focus:outline-none text-sm resize-none py-1",
+                                            isWordWrap ? "whitespace-normal" : "truncate"
+                                          )}
+                                        />
+                                        {isDelayed && <AlertCircle size={14} className="text-red-500 animate-pulse flex-shrink-0" />}
+                                      </div>
+                                    )}
+                                    {colIdx === 4 && (
+                                      <select
+                                        value={task.status}
+                                        onChange={(e) => handleUpdate(task.id, { status: e.target.value as SubTaskStatus })}
+                                        className={cn(
+                                          "px-2 py-0.5 rounded-md text-[10px] font-bold focus:outline-none w-full",
+                                          statusColors[task.status]
+                                        )}
+                                      >
+                                        {Object.keys(statusColors).map(s => <option key={s} value={s}>{s}</option>)}
+                                      </select>
+                                    )}
+                                    {colIdx === 5 && (
+                                      <input
+                                        type="date"
+                                        value={task.start_date || ''}
+                                        onChange={(e) => handleUpdate(task.id, { start_date: e.target.value })}
+                                        className="bg-transparent focus:outline-none text-sm w-full"
+                                      />
+                                    )}
+                                    {colIdx === 6 && (
+                                      <input
+                                        type="date"
+                                        value={task.due_date || ''}
+                                        onChange={(e) => handleUpdate(task.id, { due_date: e.target.value })}
+                                        className="bg-transparent focus:outline-none text-sm w-full"
+                                      />
+                                    )}
+                                    {colIdx === 7 && (
+                                      <div className="flex items-center gap-2">
+                                        <input
+                                          type="date"
+                                          value={task.final_deadline}
+                                          onChange={(e) => handleUpdate(task.id, { final_deadline: e.target.value })}
+                                          className={cn(
+                                            "bg-transparent focus:outline-none text-sm w-full",
+                                            isOverdue && "text-red-600 font-bold"
+                                          )}
+                                        />
+                                        {isOverdue && <AlertCircle size={14} className="text-red-500 flex-shrink-0" />}
+                                      </div>
+                                    )}
+                                    {colIdx === 8 && (
+                                      <input
+                                        type="number"
+                                        value={isNaN(task.planned_hours) ? '' : task.planned_hours}
+                                        onChange={(e) => {
+                                          const val = parseFloat(e.target.value);
+                                          handleUpdate(task.id, { planned_hours: isNaN(val) ? 0 : val });
+                                        }}
+                                        className="w-full bg-transparent focus:outline-none text-sm"
+                                      />
+                                    )}
+                                    {colIdx === 9 && (
+                                      <input
+                                        type="number"
+                                        value={isNaN(task.actual_hours) ? '' : task.actual_hours}
+                                        onChange={(e) => {
+                                          const val = parseFloat(e.target.value);
+                                          handleUpdate(task.id, { actual_hours: isNaN(val) ? 0 : val });
+                                        }}
+                                        className="w-full bg-transparent focus:outline-none text-sm"
+                                      />
+                                    )}
+                                    {colIdx === 10 && (
+                                      <select
+                                        value={task.priority}
+                                        onChange={(e) => handleUpdate(task.id, { priority: e.target.value as Priority })}
+                                        className="bg-transparent focus:outline-none text-sm w-full"
+                                      >
+                                        <option value="A">A</option>
+                                        <option value="B">B</option>
+                                        <option value="C">C</option>
+                                      </select>
+                                    )}
+                                    {colIdx === 11 && (
+                                      <textarea
+                                        rows={isWordWrap ? 2 : 1}
+                                        value={task.remarks || ''}
+                                        onChange={(e) => handleUpdate(task.id, { remarks: e.target.value })}
+                                        className={cn(
+                                          "w-full bg-transparent focus:outline-none text-sm resize-none py-1",
+                                          isWordWrap ? "whitespace-normal" : "truncate"
+                                        )}
+                                        placeholder="備考..."
+                                      />
+                                    )}
+                                    {colIdx === 12 && (
+                                      <div className="text-center">
+                                        <button 
+                                          onClick={() => setDeleteId(task.id)}
+                                          className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
                           )}
-                        />
-                        {isOverdue && <AlertCircle size={14} className="text-red-500" />}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="number"
-                        value={isNaN(task.planned_hours) ? '' : task.planned_hours}
-                        disabled={isLocked}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          handleUpdate(task.id, { planned_hours: isNaN(val) ? 0 : val });
-                        }}
-                        className="w-16 bg-transparent focus:outline-none disabled:cursor-default text-sm"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="number"
-                        value={isNaN(task.actual_hours) ? '' : task.actual_hours}
-                        disabled={isLocked}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          handleUpdate(task.id, { actual_hours: isNaN(val) ? 0 : val });
-                        }}
-                        className="w-16 bg-transparent focus:outline-none disabled:cursor-default text-sm"
-                      />
-                    </td>
-                    <td className="px-4 py-2">
-                      <select
-                        value={task.priority}
-                        disabled={isLocked}
-                        onChange={(e) => handleUpdate(task.id, { priority: e.target.value as Priority })}
-                        className="bg-transparent focus:outline-none disabled:appearance-none text-sm"
-                      >
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="C">C</option>
-                      </select>
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="text"
-                        value={task.remarks || ''}
-                        disabled={isLocked}
-                        onChange={(e) => handleUpdate(task.id, { remarks: e.target.value })}
-                        className="w-full bg-transparent focus:outline-none disabled:cursor-default text-sm"
-                        placeholder="備考..."
-                      />
-                    </td>
-                    {!isLocked && (
-                      <td className="px-4 py-2">
-                        <button
-                          onClick={() => handleDelete(task.id)}
-                          className="p-1.5 text-gray-300 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        
-        {subTasks.length === 0 && (
-          <div className="py-20 text-center">
-            <p className="text-[#86868b] italic text-sm">タスクが見つかりません。Excelからインポートするか、手動で追加してください。</p>
-          </div>
-        )}
+                        </Draggable>
+                      );
+                    })}
+                    {provided.placeholder}
+                  </tbody>
+                )}
+              </Droppable>
+            </table>
+        </DragDropContext>
       </div>
+      
+      {subTasks.length === 0 && (
+        <div className="py-20 text-center">
+          <p className="text-[#86868b] italic text-sm">タスクが見つかりません。Excelからインポートするか、手動で追加してください。</p>
+        </div>
+      )}
+    </div>
+
+      {delayModalTask && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="mac-card max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <AlertCircle size={24} />
+              <h3 className="text-lg font-bold">遅延情報の入力</h3>
+            </div>
+            
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">
+                  遅延原因
+                </label>
+                <textarea
+                  value={delayReason}
+                  onChange={(e) => setDelayReason(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#f5f5f7] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#007aff]/20 text-sm min-h-[100px]"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">
+                  影響判断
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['小', '中', '大'] as const).map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => setImpactAssessment(level)}
+                      className={cn(
+                        "py-2 rounded-lg text-xs font-bold transition-all",
+                        impactAssessment === level 
+                          ? "bg-[#007aff] text-white shadow-sm" 
+                          : "bg-gray-100 text-[#1d1d1f] hover:bg-gray-200"
+                      )}
+                    >
+                      {level === '小' ? '小' : level === '中' ? '中 (期日影響なし)' : '大 (期日影響あり)'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleDelaySubmit}
+                className="flex-1 py-2.5 bg-[#007aff] text-white rounded-xl font-bold hover:bg-[#0070e0] transition-colors"
+              >
+                保存する
+              </button>
+              <button
+                onClick={() => setDelayModalTask(null)}
+                className="flex-1 py-2.5 bg-gray-100 text-[#1d1d1f] rounded-xl font-bold hover:bg-gray-200 transition-colors"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="mac-card max-w-sm w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <AlertCircle size={24} />
+              <h3 className="text-lg font-bold">削除の確認</h3>
+            </div>
+            <p className="text-[#1d1d1f] mb-6">
+              このタスクを削除しますか？
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmDelete}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
+              >
+                削除する
+              </button>
+              <button
+                onClick={() => setDeleteId(null)}
+                className="flex-1 py-2.5 bg-gray-100 text-[#1d1d1f] rounded-xl font-bold hover:bg-gray-200 transition-colors"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

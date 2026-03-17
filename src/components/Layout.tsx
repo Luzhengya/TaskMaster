@@ -1,6 +1,6 @@
 import React from 'react';
-import { LayoutDashboard, ListTodo, FileUp, Settings, BarChart3, LogOut } from 'lucide-react';
-import { motion } from 'motion/react';
+import { LayoutDashboard, ListTodo, FileUp, Settings, BarChart3, LogOut, History, Menu, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 
@@ -12,69 +12,157 @@ interface LayoutProps {
 }
 
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user }) => {
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
+
   const navItems = [
     { id: 'dashboard', label: '案件一覧', icon: LayoutDashboard },
-    { id: 'tasks', label: 'タスク', icon: ListTodo },
+    { id: 'templates', label: 'テンプレ', icon: ListTodo },
+    { id: 'history', label: '履歴', icon: History },
     { id: 'import', label: 'インポート', icon: FileUp },
     { id: 'reports', label: '日報', icon: BarChart3 },
     { id: 'settings', label: '設定', icon: Settings },
   ];
 
-  return (
-    <div className="flex h-screen bg-[#f5f5f7] font-sans text-[#1d1d1f]">
-      {/* Sidebar */}
-      <aside className="w-64 bg-[#ebebeb] border-r border-gray-300 flex flex-col">
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#007aff] rounded-xl flex items-center justify-center shadow-lg shadow-[#007aff]/20">
+  const SidebarContent = () => (
+    <>
+      <div className="p-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-[#007aff] rounded-2xl flex items-center justify-center shadow-lg shadow-[#007aff]/20">
             <ListTodo className="text-white" size={24} />
           </div>
           <h1 className="text-lg font-bold tracking-tight text-[#1d1d1f]">TaskMaster</h1>
         </div>
+        <button 
+          onClick={() => setIsSidebarOpen(false)}
+          className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-full"
+        >
+          <X size={20} />
+        </button>
+      </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map((item) => (
+      <div className="px-4 mb-2">
+        <p className="px-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">メイン</p>
+        <nav className="space-y-0.5">
+          {navItems.slice(0, 4).map((item) => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                activeTab === item.id
-                  ? 'bg-[#007aff] text-white shadow-sm'
-                  : 'text-[#424245] hover:bg-gray-200'
+              onClick={() => {
+                setActiveTab(item.id);
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full mac-sidebar-item ${
+                activeTab === item.id ? 'active' : ''
               }`}
             >
-              <item.icon size={18} />
+              <item.icon size={18} className={activeTab === item.id ? 'text-white' : 'text-[#007aff]'} />
               <span>{item.label}</span>
             </button>
           ))}
         </nav>
+      </div>
 
-        <div className="p-4 border-t border-gray-300">
-          <div className="flex items-center gap-3 p-2 mb-2">
-            <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 text-xs font-bold border border-gray-400">
-              {user?.email?.[0].toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-[#1d1d1f] truncate">{user?.email}</p>
-            </div>
+      <div className="px-4 mt-6">
+        <p className="px-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">システム</p>
+        <nav className="space-y-0.5">
+          {navItems.slice(4).map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                setActiveTab(item.id);
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full mac-sidebar-item ${
+                activeTab === item.id ? 'active' : ''
+              }`}
+            >
+              <item.icon size={18} className={activeTab === item.id ? 'text-white' : 'text-[#86868b]'} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      <div className="mt-auto p-4 border-t border-black/5 bg-black/[0.02]">
+        <div className="flex items-center gap-3 p-2 mb-2">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-200 to-gray-400 flex items-center justify-center text-white text-xs font-bold border border-white/50 shadow-sm">
+            {user?.email?.[0].toUpperCase()}
           </div>
-          <button 
-            onClick={() => signOut(auth)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[#ff3b30] hover:bg-red-50 rounded-lg transition-colors"
-          >
-            <LogOut size={14} />
-            Sign Out
-          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold text-[#1d1d1f] truncate">{user?.email}</p>
+            <p className="text-[9px] text-[#86868b]">オンライン</p>
+          </div>
         </div>
+        <button 
+          onClick={() => signOut(auth)}
+          className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-[#ff3b30] hover:bg-red-50 rounded-xl transition-colors"
+        >
+          <LogOut size={14} />
+          サインアウト
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="flex h-screen bg-[#f5f5f7] font-sans text-[#1d1d1f] overflow-hidden relative">
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Sidebar (Desktop) */}
+      <aside className="hidden lg:flex w-64 bg-[#f2f2f2]/80 backdrop-blur-2xl border-r border-black/10 flex-col z-20">
+        <SidebarContent />
       </aside>
 
+      {/* Sidebar (Mobile) */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.aside
+            initial={{ x: -256 }}
+            animate={{ x: 0 }}
+            exit={{ x: -256 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-y-0 left-0 w-64 bg-[#f2f2f2] border-r border-black/10 flex flex-col z-40 lg:hidden shadow-2xl"
+          >
+            <SidebarContent />
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
       {/* Main Content */}
-      <main className="flex-1 overflow-auto p-8">
+      <main className="flex-1 overflow-auto bg-white relative flex flex-col">
+        {/* Mobile Header */}
+        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-white/80 backdrop-blur-md border-b border-black/5 sticky top-0 z-20">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-[#007aff] rounded-xl flex items-center justify-center shadow-sm">
+              <ListTodo className="text-white" size={18} />
+            </div>
+            <span className="font-bold text-sm">TaskMaster</span>
+          </div>
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+          >
+            <Menu size={20} />
+          </button>
+        </header>
+
+        <div className="absolute inset-0 bg-[#f5f5f7] -z-10" />
         <motion.div
           key={activeTab}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="max-w-6xl mx-auto"
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+          className="max-w-6xl mx-auto p-4 sm:p-8 lg:p-12 w-full"
         >
           {children}
         </motion.div>

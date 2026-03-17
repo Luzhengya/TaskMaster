@@ -27,71 +27,92 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
           const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-          const sheetName = workbook.SheetNames[0];
+          const sheetName = workbook.SheetNames.find(name => name.toLowerCase() === 'import') || workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
           const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
 
-          if (jsonData.length < 2) {
-            throw new Error('Excel file is empty or invalid format.');
+          if (jsonData.length < 3) {
+            throw new Error('Excel file format is invalid. Data should start from row 3.');
           }
 
-          const rows = jsonData.slice(1);
-          const parentTasksMap = new Map<string, string>();
-
+          const rows = jsonData.slice(2); // Data starts from Row 3 (index 2)
+          
+          // Group rows by project name (Column E - index 4)
+          const projectGroups = new Map<string, any[]>();
           for (const row of rows) {
-            const caseName = row[5]; // Column F for case name (Project)
-            if (!caseName) continue;
+            const projectName = String(row[4] || '').trim();
+            if (!projectName) continue;
+            if (!projectGroups.has(projectName)) {
+              projectGroups.set(projectName, []);
+            }
+            projectGroups.get(projectName)?.push(row);
+          }
 
-            if (!parentTasksMap.has(caseName)) {
-              const deadlineStr = row[8]; // Column I for final deadline (Project Deadline)
-              const deadline = deadlineStr ? (deadlineStr instanceof Date ? deadlineStr.toISOString().split('T')[0] : String(deadlineStr)) : new Date().toISOString().split('T')[0];
-              
-              const parentId = await taskService.addParentTask({
-                name: String(caseName),
-                deadline: deadline,
-                planned_hours: 1
-              });
-              if (parentId) {
-                parentTasksMap.set(caseName, parentId);
+          const parseDate = (val: any) => {
+            if (!val) return '';
+            if (val instanceof Date) return val.toISOString().split('T')[0];
+            const str = String(val);
+            if (str.includes('/')) return str.replace(/\//g, '-');
+            return str;
+          };
+
+          const parseNumber = (val: any) => {
+            const n = Number(val);
+            return isNaN(n) ? 0 : n;
+          };
+
+          for (const [projectName, projectRows] of projectGroups.entries()) {
+            // Calculate parent task metrics
+            let totalPlanned = 0;
+            let totalActual = 0;
+            let completedCount = 0;
+            const totalCount = projectRows.length;
+            
+            // Use Column H (index 7) from the LAST row for parent task deadline
+            const lastRow = projectRows[projectRows.length - 1];
+            const deadline = parseDate(lastRow[7]);
+
+            for (const row of projectRows) {
+              totalPlanned += parseNumber(row[16]); // Column Q (index 16)
+              totalActual += parseNumber(row[17]); // Column R (index 17)
+              if (String(row[9] || '').includes('済')) { // Column J (index 9)
+                completedCount++;
               }
             }
 
-            const parentId = parentTasksMap.get(caseName);
-            if (!parentId) continue;
-            
-            const parseDate = (val: any) => {
-              if (!val) return '';
-              if (val instanceof Date) return val.toISOString().split('T')[0];
-              // Handle string dates if they are in YYYY/MM/DD format
-              const str = String(val);
-              if (str.includes('/')) {
-                return str.replace(/\//g, '-');
-              }
-              return str;
-            };
+            const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
-            const parseNumber = (val: any) => {
-              const n = Number(val);
-              return isNaN(n) ? 0 : n;
-            };
-
-            await taskService.addSubTask({
-              parent_task_id: parentId,
-              system: String(row[0] || ''), // Column A
-              month: String(row[1] || ''), // Column B
-              daily_report_date: parseDate(row[6]), // Column G (日報)
-              start_date: parseDate(row[7]), // Column H (開始日)
-              due_date: parseDate(row[8]), // Column I (期日)
-              final_deadline: parseDate(row[9]), // Column J (期限)
-              status: String(row[10] || '未着手') as any, // Column K (ステータス)
-              task_name: String(row[11] || ''), // Column L (タスク)
-              planned_hours: parseNumber(row[17]), // Column R (予定工数)
-              actual_hours: parseNumber(row[18]), // Column S (実績工数)
-              priority: (row[19] || 'B') as any, // Column T (優先度)
-              remarks: String(row[20] || ''), // Column U (備考)
-              week_number: parseNumber(row[22]), // Column W (週次) - Wait, W is 22? A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7, I=8, J=9, K=10, L=11, M=12, N=13, O=14, P=15, Q=16, R=17, S=18, T=19, U=20, V=21, W=22. Yes.
-              flag: 0
+            // Add Parent Task
+            const parentId = await taskService.addParentTask({
+              name: projectName,
+              deadline: deadline || new Date().toISOString().split('T')[0],
+              planned_hours: totalPlanned,
+              actual_hours: totalActual,
+              progress: progress
             });
+
+            if (!parentId) continue;
+
+            // Add Sub Tasks
+            for (const row of projectRows) {
+              await taskService.addSubTask({
+                parent_task_id: parentId,
+                system: String(row[0] || ''), // Column A (index 0)
+                month: String(row[2] || ''), // Column C (index 2)
+                daily_report_date: new Date().toISOString().split('T')[0], // Default to today
+                start_date: parseDate(row[6]), // Column G (index 6)
+                due_date: parseDate(row[7]), // Column H (index 7)
+                final_deadline: parseDate(row[8]), // Column I (index 8)
+                status: String(row[9] || '未着手') as any, // Column J (index 9)
+                task_name: String(row[10] || ''), // Column K (index 10)
+                planned_hours: parseNumber(row[16]), // Column Q (index 16)
+                actual_hours: parseNumber(row[17]), // Column R (index 17)
+                priority: (row[18] || 'B') as any, // Column S (index 18)
+                remarks: String(row[19] || ''), // Column T (index 19)
+                week_number: 0,
+                flag: 0
+              });
+            }
           }
 
           setSuccess(true);
