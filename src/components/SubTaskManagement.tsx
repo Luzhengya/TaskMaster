@@ -274,7 +274,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         <div className="overflow-auto flex-1 relative">
           <DragDropContext onDragEnd={onDragEnd}>
             <table className="w-full text-left border-separate border-spacing-0">
-              <thead className="sticky top-0 z-50">
+              <thead className="sticky top-[56px] lg:top-0 z-50">
                 <tr className="bg-gray-50">
                   <ResizableTh index={0} />
                   <ResizableTh index={1} title="日報">日報</ResizableTh>
@@ -312,7 +312,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                               {...provided.draggableProps}
                               className={cn(
                                 "group transition-colors",
-                                isCompleted ? "bg-gray-50/50 opacity-60" : isOverdue ? "bg-red-50" : "hover:bg-gray-50",
+                                isCompleted ? "bg-[#f5f5f7]" : isOverdue ? "bg-red-50" : "hover:bg-gray-50",
                                 highlightTaskId === task.id && "ring-2 ring-[#007aff] ring-inset"
                               )}
                             >
@@ -334,8 +334,9 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                     }}
                                     className={cn(
                                       "px-4 py-2 border-b border-gray-50 transition-colors",
-                                      isFrozen && (isCompleted ? "bg-gray-100/50" : isOverdue ? "bg-red-50" : "bg-white group-hover:bg-gray-50"),
-                                      isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
+                                      isFrozen && (isCompleted ? "bg-[#f5f5f7]" : isOverdue ? "bg-red-50" : "bg-white group-hover:bg-gray-50"),
+                                      isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]",
+                                      isCompleted && !isFrozen && "opacity-60"
                                     )}
                                   >
                                     {colIdx === 0 && (

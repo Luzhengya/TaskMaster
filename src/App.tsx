@@ -61,9 +61,28 @@ export default function App() {
     }
   }, [user]);
 
-  const handleLogin = () => {
-    const provider = new GoogleAuthProvider();
-    signInWithPopup(auth, provider);
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      // Force account selection to avoid automatic login with wrong account
+      provider.setCustomParameters({ prompt: 'select_account' });
+      
+      // Use signInWithPopup which is generally more reliable in modern browsers
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      console.error('Login error:', error);
+      
+      // Provide user-friendly error messages based on common Firebase Auth error codes
+      if (error.code === 'auth/popup-blocked') {
+        alert('ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。\n(Popup was blocked. Please allow popups for this site.)');
+      } else if (error.code === 'auth/unauthorized-domain') {
+        alert('このドメインはFirebaseで許可されていません。Firebase Consoleの「承認済みドメイン」に現在のURLを追加してください。\n(This domain is not authorized. Please add your Vercel URL to the "Authorized domains" list in Firebase Console.)');
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        // User closed the popup, no need for alert
+      } else {
+        alert('ログインに失敗しました: ' + error.message);
+      }
+    }
   };
 
   if (!isAuthReady) {

@@ -357,7 +357,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
         {settings?.ui_preferences.view === 'table' ? (
           <div className="mac-card overflow-x-auto">
             <table className="w-full text-left border-separate border-spacing-0 min-w-[800px]">
-              <thead className="sticky top-0 z-50">
+              <thead className="sticky top-[56px] lg:top-0 z-50">
                 <tr className="mac-table-header border-b border-black/5">
                   <ResizableTh index={0} />
                   <ResizableTh index={1} title="プロジェクト名">プロジェクト名</ResizableTh>
@@ -385,7 +385,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                               {...provided.draggableProps}
                               className={cn(
                                 "mac-table-row cursor-pointer group transition-colors",
-                                progress === 100 ? "bg-gray-50/50 opacity-60" : ""
+                                progress === 100 ? "bg-[#f5f5f7]" : ""
                               )}
                               onClick={() => onSelectTask(task)}
                             >

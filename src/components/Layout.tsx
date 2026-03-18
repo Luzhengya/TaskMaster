@@ -113,7 +113,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsSidebarOpen(false)}
-            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 lg:hidden"
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60] lg:hidden"
           />
         )}
       </AnimatePresence>
@@ -131,7 +131,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
             animate={{ x: 0 }}
             exit={{ x: -256 }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed inset-y-0 left-0 w-64 bg-[#f2f2f2] border-r border-black/10 flex flex-col z-40 lg:hidden shadow-2xl"
+            className="fixed inset-y-0 left-0 w-64 bg-[#f2f2f2] border-r border-black/10 flex flex-col z-[70] lg:hidden shadow-2xl"
           >
             <SidebarContent />
           </motion.aside>
@@ -141,7 +141,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
       {/* Main Content */}
       <main className="flex-1 overflow-auto bg-white relative flex flex-col">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-white/80 backdrop-blur-md border-b border-black/5 sticky top-0 z-20">
+        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-white/80 backdrop-blur-md border-b border-black/5 sticky top-0 z-[60]">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-[#007aff] rounded-xl flex items-center justify-center shadow-sm">
               <ListTodo className="text-white" size={18} />
