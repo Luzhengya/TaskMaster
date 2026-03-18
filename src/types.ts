@@ -77,6 +77,8 @@ export interface UserSettings {
     font: string;
   };
   notification_rules: NotificationRule[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface NotificationRule {

@@ -9,7 +9,8 @@ import {
   query, 
   where, 
   serverTimestamp,
-  getDocFromServer
+  getDocFromServer,
+  writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { ParentTask, SubTask, TaskTemplate, TemplateItem, UserSettings } from '../types';
@@ -67,9 +68,70 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   }
 }
 
+
+const GUEST_STORAGE_KEY = 'taskmaster_guest_data';
+
+interface GuestStore {
+  parent_tasks: ParentTask[];
+  sub_tasks: SubTask[];
+  task_templates: TaskTemplate[];
+  template_items: TemplateItem[];
+  settings: UserSettings | null;
+}
+
+const initialGuestStore: GuestStore = {
+  parent_tasks: [],
+  sub_tasks: [],
+  task_templates: [],
+  template_items: [],
+  settings: {
+    id: 'guest-settings',
+    ai_models: [],
+    ui_preferences: {
+      view: 'table',
+      opacity: 1,
+      theme: 'light',
+      font: 'Inter'
+    },
+    notification_rules: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  }
+};
+
+const loadGuestStore = (): GuestStore => {
+  const stored = localStorage.getItem(GUEST_STORAGE_KEY);
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      console.error('Failed to parse guest store:', e);
+    }
+  }
+  return { ...initialGuestStore };
+};
+
+// Simple observer system for guest mode
+type GuestObserver = () => void;
+const guestObservers: Set<GuestObserver> = new Set();
+
+const notifyGuestObservers = () => {
+  guestObservers.forEach(observer => observer());
+};
+
+const saveGuestStore = (store: GuestStore) => {
+  localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(store));
+  notifyGuestObservers();
+};
+
+let guestStore = loadGuestStore();
+
 export const taskService = {
+  isGuest: false,
+
   // Test connection
   async testConnection() {
+    if (this.isGuest) return;
     try {
       await getDocFromServer(doc(db, 'test', 'connection'));
     } catch (error) {
@@ -79,8 +141,41 @@ export const taskService = {
     }
   },
 
+  async cleanupUserData(userId: string) {
+    if (this.isGuest) {
+      guestStore = { ...initialGuestStore };
+      saveGuestStore(guestStore);
+      return;
+    }
+    console.log('Cleaning up data for user:', userId);
+    const collections = ['parent_tasks', 'sub_tasks', 'task_templates', 'template_items', 'settings'];
+    for (const colName of collections) {
+      try {
+        const q = query(collection(db, colName), where('owner_id', '==', userId));
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.docs.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+        console.log(`Cleaned up ${snapshot.size} documents from ${colName}`);
+      } catch (error) {
+        console.error(`Error cleaning up ${colName}:`, error);
+      }
+    }
+  },
+
   // Parent Tasks
   subscribeParentTasks(callback: (tasks: ParentTask[]) => void, showHidden = false) {
+    if (this.isGuest) {
+      const update = () => {
+        const filtered = guestStore.parent_tasks.filter(t => !!t.is_hidden === showHidden);
+        callback(filtered);
+      };
+      update();
+      guestObservers.add(update);
+      return () => guestObservers.delete(update);
+    }
     if (!auth.currentUser) return () => {};
     const q = query(
       collection(db, 'parent_tasks'),
@@ -96,6 +191,20 @@ export const taskService = {
   },
 
   async addParentTask(task: Omit<ParentTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+    if (this.isGuest) {
+      const newTask: ParentTask = {
+        ...task,
+        id: Math.random().toString(36).substr(2, 9),
+        is_hidden: false,
+        order: guestStore.parent_tasks.length,
+        owner_id: 'guest',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      guestStore.parent_tasks.push(newTask);
+      saveGuestStore(guestStore);
+      return newTask.id;
+    }
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'parent_tasks';
     try {
@@ -119,6 +228,18 @@ export const taskService = {
   },
 
   async updateParentTask(id: string, task: Partial<ParentTask>) {
+    if (this.isGuest) {
+      const index = guestStore.parent_tasks.findIndex(t => t.id === id);
+      if (index !== -1) {
+        guestStore.parent_tasks[index] = {
+          ...guestStore.parent_tasks[index],
+          ...task,
+          updated_at: new Date().toISOString()
+        };
+        saveGuestStore(guestStore);
+      }
+      return;
+    }
     const path = `parent_tasks/${id}`;
     try {
       await updateDoc(doc(db, 'parent_tasks', id), {
@@ -131,6 +252,12 @@ export const taskService = {
   },
 
   async deleteParentTask(id: string) {
+    if (this.isGuest) {
+      guestStore.parent_tasks = guestStore.parent_tasks.filter(t => t.id !== id);
+      guestStore.sub_tasks = guestStore.sub_tasks.filter(t => t.parent_task_id !== id);
+      saveGuestStore(guestStore);
+      return;
+    }
     const path = `parent_tasks/${id}`;
     try {
       // Delete associated sub-tasks first
@@ -151,6 +278,12 @@ export const taskService = {
   },
 
   async clearAllData() {
+    if (this.isGuest) {
+      guestStore.parent_tasks = [];
+      guestStore.sub_tasks = [];
+      saveGuestStore(guestStore);
+      return;
+    }
     if (!auth.currentUser) throw new Error('User not authenticated');
     try {
       // Delete all parent tasks
@@ -171,6 +304,14 @@ export const taskService = {
 
   // Sub Tasks
   subscribeAllSubTasks(callback: (tasks: SubTask[]) => void) {
+    if (this.isGuest) {
+      const update = () => {
+        callback(guestStore.sub_tasks);
+      };
+      update();
+      guestObservers.add(update);
+      return () => guestObservers.delete(update);
+    }
     if (!auth.currentUser) return () => {};
     const q = query(
       collection(db, 'sub_tasks'),
@@ -184,6 +325,15 @@ export const taskService = {
   },
 
   subscribeSubTasks(parentTaskId: string, callback: (tasks: SubTask[]) => void) {
+    if (this.isGuest) {
+      const update = () => {
+        const filtered = guestStore.sub_tasks.filter(t => t.parent_task_id === parentTaskId);
+        callback(filtered);
+      };
+      update();
+      guestObservers.add(update);
+      return () => guestObservers.delete(update);
+    }
     if (!auth.currentUser) return () => {};
     const q = query(
       collection(db, 'sub_tasks'), 
@@ -198,6 +348,20 @@ export const taskService = {
   },
 
   async addSubTask(task: Omit<SubTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+    if (this.isGuest) {
+      const newTask: SubTask = {
+        ...task,
+        id: Math.random().toString(36).substr(2, 9),
+        is_in_report: false,
+        order: guestStore.sub_tasks.filter(t => t.parent_task_id === task.parent_task_id).length,
+        owner_id: 'guest',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      guestStore.sub_tasks.push(newTask);
+      saveGuestStore(guestStore);
+      return newTask.id;
+    }
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'sub_tasks';
     try {
@@ -246,6 +410,18 @@ export const taskService = {
   },
 
   async updateSubTask(id: string, task: Partial<SubTask>) {
+    if (this.isGuest) {
+      const index = guestStore.sub_tasks.findIndex(t => t.id === id);
+      if (index !== -1) {
+        guestStore.sub_tasks[index] = {
+          ...guestStore.sub_tasks[index],
+          ...task,
+          updated_at: new Date().toISOString()
+        };
+        saveGuestStore(guestStore);
+      }
+      return;
+    }
     const path = `sub_tasks/${id}`;
     try {
       await updateDoc(doc(db, 'sub_tasks', id), {
@@ -258,6 +434,11 @@ export const taskService = {
   },
 
   async deleteSubTask(id: string) {
+    if (this.isGuest) {
+      guestStore.sub_tasks = guestStore.sub_tasks.filter(t => t.id !== id);
+      saveGuestStore(guestStore);
+      return;
+    }
     const path = `sub_tasks/${id}`;
     try {
       await deleteDoc(doc(db, 'sub_tasks', id));
@@ -268,6 +449,14 @@ export const taskService = {
 
   // Task Templates
   subscribeTaskTemplates(callback: (templates: TaskTemplate[]) => void) {
+    if (this.isGuest) {
+      const update = () => {
+        callback([...guestStore.task_templates]);
+      };
+      update();
+      guestObservers.add(update);
+      return () => guestObservers.delete(update);
+    }
     if (!auth.currentUser) return () => {};
     const q = query(
       collection(db, 'task_templates'),
@@ -281,6 +470,19 @@ export const taskService = {
   },
 
   async addTaskTemplate(template: Omit<TaskTemplate, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+    if (this.isGuest) {
+      const newTemplate: TaskTemplate = {
+        ...template,
+        id: Math.random().toString(36).substr(2, 9),
+        order: guestStore.task_templates.length,
+        owner_id: 'guest',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      guestStore.task_templates.push(newTemplate);
+      saveGuestStore(guestStore);
+      return newTemplate.id;
+    }
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'task_templates';
     try {
@@ -302,6 +504,18 @@ export const taskService = {
   },
 
   async updateTaskTemplate(id: string, updates: Partial<TaskTemplate>) {
+    if (this.isGuest) {
+      const index = guestStore.task_templates.findIndex(t => t.id === id);
+      if (index !== -1) {
+        guestStore.task_templates[index] = {
+          ...guestStore.task_templates[index],
+          ...updates,
+          updated_at: new Date().toISOString()
+        };
+        saveGuestStore(guestStore);
+      }
+      return;
+    }
     const path = `task_templates/${id}`;
     try {
       await updateDoc(doc(db, 'task_templates', id), {
@@ -314,6 +528,12 @@ export const taskService = {
   },
 
   async deleteTaskTemplate(id: string) {
+    if (this.isGuest) {
+      guestStore.task_templates = guestStore.task_templates.filter(t => t.id !== id);
+      guestStore.template_items = guestStore.template_items.filter(t => t.template_id !== id);
+      saveGuestStore(guestStore);
+      return;
+    }
     const path = `task_templates/${id}`;
     try {
       // Delete associated template items first
@@ -335,6 +555,15 @@ export const taskService = {
 
   // Template Items
   subscribeTemplateItems(templateId: string, callback: (items: TemplateItem[]) => void) {
+    if (this.isGuest) {
+      const update = () => {
+        const filtered = guestStore.template_items.filter(t => t.template_id === templateId);
+        callback(filtered);
+      };
+      update();
+      guestObservers.add(update);
+      return () => guestObservers.delete(update);
+    }
     if (!auth.currentUser) return () => {};
     const q = query(
       collection(db, 'template_items'),
@@ -349,6 +578,19 @@ export const taskService = {
   },
 
   async addTemplateItem(item: Omit<TemplateItem, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+    if (this.isGuest) {
+      const newItem: TemplateItem = {
+        ...item,
+        id: Math.random().toString(36).substr(2, 9),
+        order: guestStore.template_items.filter(t => t.template_id === item.template_id).length,
+        owner_id: 'guest',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      guestStore.template_items.push(newItem);
+      saveGuestStore(guestStore);
+      return newItem.id;
+    }
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'template_items';
     try {
@@ -370,6 +612,18 @@ export const taskService = {
   },
 
   async updateTemplateItem(id: string, updates: Partial<TemplateItem>) {
+    if (this.isGuest) {
+      const index = guestStore.template_items.findIndex(t => t.id === id);
+      if (index !== -1) {
+        guestStore.template_items[index] = {
+          ...guestStore.template_items[index],
+          ...updates,
+          updated_at: new Date().toISOString()
+        };
+        saveGuestStore(guestStore);
+      }
+      return;
+    }
     const path = `template_items/${id}`;
     try {
       await updateDoc(doc(db, 'template_items', id), {
@@ -382,6 +636,11 @@ export const taskService = {
   },
 
   async deleteTemplateItem(id: string) {
+    if (this.isGuest) {
+      guestStore.template_items = guestStore.template_items.filter(t => t.id !== id);
+      saveGuestStore(guestStore);
+      return;
+    }
     const path = `template_items/${id}`;
     try {
       await deleteDoc(doc(db, 'template_items', id));
@@ -391,6 +650,9 @@ export const taskService = {
   },
 
   async getTemplateItems(templateId: string) {
+    if (this.isGuest) {
+      return guestStore.template_items.filter(t => t.template_id === templateId);
+    }
     if (!auth.currentUser) throw new Error('User not authenticated');
     const q = query(
       collection(db, 'template_items'),
@@ -403,6 +665,14 @@ export const taskService = {
 
   // Settings
   subscribeSettings(callback: (settings: UserSettings | null) => void) {
+    if (this.isGuest) {
+      const update = () => {
+        callback(guestStore.settings);
+      };
+      update();
+      guestObservers.add(update);
+      return () => guestObservers.delete(update);
+    }
     if (!auth.currentUser) return () => {};
     const q = query(
       collection(db, 'settings'),
@@ -419,6 +689,22 @@ export const taskService = {
   },
 
   async updateSettings(id: string | undefined, settings: Partial<UserSettings>) {
+    if (this.isGuest) {
+      guestStore.settings = {
+        ...(guestStore.settings || {
+          id: 'guest-settings',
+          owner_id: 'guest',
+          ai_models: [],
+          ui_preferences: { view: 'table', opacity: 1, theme: 'light', font: 'Inter' },
+          notification_rules: [],
+          updated_at: new Date().toISOString()
+        }),
+        ...settings,
+        updated_at: new Date().toISOString()
+      } as UserSettings;
+      saveGuestStore(guestStore);
+      return;
+    }
     if (!auth.currentUser) throw new Error('User not authenticated');
     if (id) {
       const path = `settings/${id}`;

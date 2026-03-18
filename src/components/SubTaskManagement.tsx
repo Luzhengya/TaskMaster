@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ParentTask, SubTask, SubTaskStatus, Priority } from '../types';
 import { taskService } from '../services/taskService';
+import { EditableCell } from './EditableCell';
 import { 
   Plus, 
   Lock, 
@@ -347,7 +348,14 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                     {colIdx === 1 && (
                                       <div className="text-center">
                                         <button
-                                          onClick={() => handleUpdate(task.id, { is_in_report: !task.is_in_report })}
+                                          onClick={() => {
+                                            const newIsInReport = !task.is_in_report;
+                                            const today = new Date().toISOString().split('T')[0];
+                                            handleUpdate(task.id, { 
+                                              is_in_report: newIsInReport,
+                                              daily_report_date: newIsInReport && !task.daily_report_date ? today : task.daily_report_date
+                                            });
+                                          }}
                                           className={cn(
                                             "p-1 rounded transition-colors",
                                             task.is_in_report ? "text-[#007aff]" : "text-gray-300 hover:text-gray-400"
@@ -358,26 +366,28 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       </div>
                                     )}
                                     {colIdx === 2 && (
-                                      <input
-                                        type="text"
+                                      <EditableCell
                                         value={task.system}
-                                        onChange={(e) => handleUpdate(task.id, { system: e.target.value })}
+                                        onSave={(val) => handleUpdate(task.id, { system: val as string })}
                                         className={cn(
-                                          "w-full bg-transparent focus:outline-none text-sm",
+                                          "text-sm",
                                           isWordWrap ? "whitespace-normal break-words" : "truncate"
                                         )}
+                                        placeholder="システム名"
                                       />
                                     )}
                                     {colIdx === 3 && (
                                       <div className="flex items-center gap-2">
-                                        <textarea
+                                        <EditableCell
+                                          type="textarea"
                                           rows={isWordWrap ? 2 : 1}
                                           value={task.task_name}
-                                          onChange={(e) => handleUpdate(task.id, { task_name: e.target.value })}
+                                          onSave={(val) => handleUpdate(task.id, { task_name: val as string })}
                                           className={cn(
-                                            "w-full bg-transparent font-medium focus:outline-none text-sm resize-none py-1",
+                                            "font-medium text-sm py-1",
                                             isWordWrap ? "whitespace-normal" : "truncate"
                                           )}
+                                          placeholder="タスク名"
                                         />
                                         {isDelayed && <AlertCircle size={14} className="text-red-500 animate-pulse flex-shrink-0" />}
                                       </div>
@@ -425,25 +435,19 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       </div>
                                     )}
                                     {colIdx === 8 && (
-                                      <input
+                                      <EditableCell
                                         type="number"
-                                        value={isNaN(task.planned_hours) ? '' : task.planned_hours}
-                                        onChange={(e) => {
-                                          const val = parseFloat(e.target.value);
-                                          handleUpdate(task.id, { planned_hours: isNaN(val) ? 0 : val });
-                                        }}
-                                        className="w-full bg-transparent focus:outline-none text-sm"
+                                        value={isNaN(task.planned_hours) ? 0 : task.planned_hours}
+                                        onSave={(val) => handleUpdate(task.id, { planned_hours: val as number })}
+                                        className="text-sm"
                                       />
                                     )}
                                     {colIdx === 9 && (
-                                      <input
+                                      <EditableCell
                                         type="number"
-                                        value={isNaN(task.actual_hours) ? '' : task.actual_hours}
-                                        onChange={(e) => {
-                                          const val = parseFloat(e.target.value);
-                                          handleUpdate(task.id, { actual_hours: isNaN(val) ? 0 : val });
-                                        }}
-                                        className="w-full bg-transparent focus:outline-none text-sm"
+                                        value={isNaN(task.actual_hours) ? 0 : task.actual_hours}
+                                        onSave={(val) => handleUpdate(task.id, { actual_hours: val as number })}
+                                        className="text-sm"
                                       />
                                     )}
                                     {colIdx === 10 && (
@@ -458,12 +462,13 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       </select>
                                     )}
                                     {colIdx === 11 && (
-                                      <textarea
+                                      <EditableCell
+                                        type="textarea"
                                         rows={isWordWrap ? 2 : 1}
                                         value={task.remarks || ''}
-                                        onChange={(e) => handleUpdate(task.id, { remarks: e.target.value })}
+                                        onSave={(val) => handleUpdate(task.id, { remarks: val as string })}
                                         className={cn(
-                                          "w-full bg-transparent focus:outline-none text-sm resize-none py-1",
+                                          "text-sm py-1",
                                           isWordWrap ? "whitespace-normal" : "truncate"
                                         )}
                                         placeholder="備考..."

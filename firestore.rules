@@ -49,18 +49,28 @@ service cloud.firestore {
              (data.priority in ['A', 'B', 'C']) &&
              data.planned_hours is number &&
              data.actual_hours is number &&
+             (!('system' in data) || data.system is string) &&
+             (!('month' in data) || data.month is string) &&
+             (!('daily_report_date' in data) || data.daily_report_date is string) &&
+             (!('start_date' in data) || data.start_date is string) &&
+             (!('due_date' in data) || data.due_date is string) &&
+             (!('final_deadline' in data) || data.final_deadline is string) &&
+             (!('remarks' in data) || data.remarks is string) &&
              (!('is_in_report' in data) || data.is_in_report is bool) &&
              (!('order' in data) || data.order is number) &&
              (!('weekday' in data) || data.weekday is string) &&
              (!('week' in data) || data.week is string) &&
              (!('week_number' in data) || data.week_number is number) &&
              (!('flag' in data) || data.flag is number) &&
+             (!('delay_reason' in data) || data.delay_reason is string) &&
+             (!('impact_assessment' in data) || data.impact_assessment in ['小', '中', '大']) &&
              hasOnlyAllowedFields([
                'parent_task_id', 'system', 'month', 'daily_report_date', 
                'start_date', 'due_date', 'final_deadline', 'status', 
                'task_name', 'planned_hours', 'actual_hours', 'priority', 
-               'remarks', 'is_in_report', 'order', 'weekday', 'week', 
-               'week_number', 'flag', 'owner_id', 'created_at', 'updated_at'
+               'remarks', 'delay_reason', 'impact_assessment', 'is_in_report', 
+               'order', 'weekday', 'week', 'week_number', 'flag', 'owner_id', 
+               'created_at', 'updated_at'
              ]);
     }
 
@@ -78,6 +88,8 @@ service cloud.firestore {
              (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ', '着着手遅れ']) &&
              (data.priority in ['A', 'B', 'C']) &&
              data.planned_hours is number &&
+             (!('system' in data) || data.system is string) &&
+             (!('remarks' in data) || data.remarks is string) &&
              (!('order' in data) || data.order is number) &&
              hasOnlyAllowedFields(['template_id', 'system', 'task_name', 'status', 'planned_hours', 'priority', 'remarks', 'order', 'owner_id', 'created_at', 'updated_at']);
     }

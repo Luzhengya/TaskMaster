@@ -8,7 +8,8 @@ import {
   AlertCircle, 
   Copy, 
   Loader2,
-  RefreshCw
+  RefreshCw,
+  ListTodo
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
@@ -30,8 +31,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
   const today = new Date().toISOString().split('T')[0];
   
   const reportTasks = allSubTasks.filter(t => t.is_in_report);
-  const todayTasks = reportTasks.filter(t => t.daily_report_date === today);
-  const unfinishedTasks = reportTasks.filter(t => t.status !== '済');
+  const todayTasks = reportTasks; // Show all checked tasks as requested
   const delayedTasks = reportTasks.filter(t => 
     t.status.includes('遅れ') || (t.final_deadline && t.final_deadline < today && t.status !== '済')
   );
@@ -42,7 +42,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
     try {
       const res = await aiService.generateSummary({
         today: todayTasks,
-        unfinished: unfinishedTasks,
+        unfinished: [],
         delayed: delayedTasks
       });
       setSummary(res);
@@ -93,16 +93,23 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
             <div className="space-y-2">
               {delayedTasks.length > 0 ? delayedTasks.map(t => (
                 <div key={t.id} className="flex items-center justify-between p-3 bg-red-50/50 rounded-xl border border-red-100 group">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <button 
                       onClick={() => onJumpToTask(t)}
-                      className="font-medium block text-sm text-left hover:text-[#007aff] transition-colors"
+                      className="font-medium block text-sm text-left hover:text-[#007aff] transition-colors truncate"
                     >
                       {t.task_name}
                     </button>
-                    <span className="text-[10px] text-red-400">Deadline: {t.final_deadline}</span>
+                    <div className="flex flex-col gap-0.5 mt-1">
+                      <span className="text-[10px] text-red-400 font-medium">Deadline: {t.final_deadline}</span>
+                      {t.delay_reason && (
+                        <span className="text-[10px] text-[#86868b] bg-white/50 px-2 py-0.5 rounded border border-red-100/50 italic">
+                          原因: {t.delay_reason}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-[10px] px-2 py-0.5 bg-white text-red-600 rounded-md border border-red-100">{t.status}</span>
+                  <span className="text-[10px] px-2 py-0.5 bg-white text-red-600 rounded-md border border-red-100 ml-4 h-fit">{t.status}</span>
                 </div>
               )) : (
                 <p className="text-sm text-[#86868b] italic">No delayed tasks. Great job!</p>

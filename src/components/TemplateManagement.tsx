@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TaskTemplate, TemplateItem, Priority, SubTaskStatus } from '../types';
 import { taskService } from '../services/taskService';
+import { EditableCell } from './EditableCell';
 import { 
   Plus, 
   Trash2, 
@@ -142,20 +143,18 @@ export const TemplateManagement: React.FC = () => {
                 {templateItems.map((item) => (
                   <tr key={item.id} className="group hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-2">
-                      <input
-                        type="text"
+                      <EditableCell
                         value={item.system}
-                        onChange={(e) => handleUpdateItem(item.id, { system: e.target.value })}
-                        className="w-full bg-transparent focus:outline-none text-sm"
+                        onSave={(val) => handleUpdateItem(item.id, { system: val as string })}
+                        className="text-sm"
                         placeholder="システム名"
                       />
                     </td>
                     <td className="px-4 py-2">
-                      <input
-                        type="text"
+                      <EditableCell
                         value={item.task_name}
-                        onChange={(e) => handleUpdateItem(item.id, { task_name: e.target.value })}
-                        className="w-full bg-transparent font-medium focus:outline-none text-sm"
+                        onSave={(val) => handleUpdateItem(item.id, { task_name: val as string })}
+                        className="font-medium text-sm"
                         placeholder="タスク名"
                       />
                     </td>
@@ -172,14 +171,11 @@ export const TemplateManagement: React.FC = () => {
                       </select>
                     </td>
                     <td className="px-4 py-2">
-                      <input
+                      <EditableCell
                         type="number"
-                        value={isNaN(item.planned_hours) ? '' : item.planned_hours}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value);
-                          handleUpdateItem(item.id, { planned_hours: isNaN(val) ? 0 : val });
-                        }}
-                        className="w-16 bg-transparent focus:outline-none text-sm"
+                        value={isNaN(item.planned_hours) ? 0 : item.planned_hours}
+                        onSave={(val) => handleUpdateItem(item.id, { planned_hours: val as number })}
+                        className="w-16 text-sm"
                       />
                     </td>
                     <td className="px-4 py-2">
@@ -194,11 +190,10 @@ export const TemplateManagement: React.FC = () => {
                       </select>
                     </td>
                     <td className="px-4 py-2">
-                      <input
-                        type="text"
+                      <EditableCell
                         value={item.remarks || ''}
-                        onChange={(e) => handleUpdateItem(item.id, { remarks: e.target.value })}
-                        className="w-full bg-transparent focus:outline-none text-sm"
+                        onSave={(val) => handleUpdateItem(item.id, { remarks: val as string })}
+                        className="text-sm"
                         placeholder="備考..."
                       />
                     </td>

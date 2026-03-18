@@ -1,17 +1,16 @@
 import React from 'react';
 import { LayoutDashboard, ListTodo, FileUp, Settings, BarChart3, LogOut, History, Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth } from '../firebase';
-import { signOut } from 'firebase/auth';
 
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   user: any;
+  onLogout: () => void;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
 
   const navItems = [
@@ -85,15 +84,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
       <div className="mt-auto p-4 border-t border-black/5 bg-black/[0.02]">
         <div className="flex items-center gap-3 p-2 mb-2">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-200 to-gray-400 flex items-center justify-center text-white text-xs font-bold border border-white/50 shadow-sm">
-            {user?.email?.[0].toUpperCase()}
+            {user?.email?.[0].toUpperCase() || 'G'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold text-[#1d1d1f] truncate">{user?.email}</p>
+            <p className="text-[10px] font-bold text-[#1d1d1f] truncate">{user?.email || 'Guest User'}</p>
             <p className="text-[9px] text-[#86868b]">オンライン</p>
           </div>
         </div>
         <button 
-          onClick={() => signOut(auth)}
+          onClick={onLogout}
           className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold text-[#ff3b30] hover:bg-red-50 rounded-xl transition-colors"
         >
           <LogOut size={14} />

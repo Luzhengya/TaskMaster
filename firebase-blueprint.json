@@ -37,6 +37,8 @@
         "actual_hours": { "type": "number" },
         "priority": { "type": "string", "enum": ["A", "B", "C"] },
         "remarks": { "type": "string" },
+        "delay_reason": { "type": "string" },
+        "impact_assessment": { "type": "string", "enum": ["小", "中", "大"] },
         "is_in_report": { "type": "boolean" },
         "order": { "type": "integer" },
         "weekday": { "type": "string" },
