@@ -79,11 +79,232 @@ interface GuestStore {
   settings: UserSettings | null;
 }
 
-const initialGuestStore: GuestStore = {
-  parent_tasks: [],
-  sub_tasks: [],
-  task_templates: [],
-  template_items: [],
+const getInitialGuestStore = (): GuestStore => ({
+  parent_tasks: [
+    {
+      id: 'sample-p1',
+      name: '【サンプル】新機能開発プロジェクト',
+      deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      planned_hours: 40,
+      actual_hours: 12,
+      progress: 30,
+      is_hidden: false,
+      order: 0,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-p2',
+      name: '【サンプル】システム保守・運用',
+      deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      planned_hours: 20,
+      actual_hours: 18,
+      progress: 90,
+      is_hidden: false,
+      order: 1,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  ],
+  sub_tasks: [
+    {
+      id: 'sample-s1',
+      parent_task_id: 'sample-p1',
+      system: 'Frontend',
+      task_name: 'UIコンポーネントの作成',
+      status: '進行中',
+      month: new Date().toISOString().slice(0, 7),
+      week_number: 1,
+      flag: 0,
+      start_date: new Date().toISOString().split('T')[0],
+      due_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      final_deadline: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      planned_hours: 8,
+      actual_hours: 4,
+      priority: 'A',
+      is_in_report: true,
+      daily_report_date: new Date().toISOString().split('T')[0],
+      remarks: '順調に進んでいます',
+      order: 0,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-s2',
+      parent_task_id: 'sample-p1',
+      system: 'Backend',
+      task_name: 'APIエンドポイントの実装',
+      status: '未着手',
+      month: new Date().toISOString().slice(0, 7),
+      week_number: 2,
+      flag: 0,
+      start_date: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      final_deadline: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      planned_hours: 12,
+      actual_hours: 0,
+      priority: 'B',
+      is_in_report: false,
+      daily_report_date: '',
+      remarks: '',
+      order: 1,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-s3',
+      parent_task_id: 'sample-p2',
+      system: 'Infrastructure',
+      task_name: 'サーバー証明書の更新',
+      status: '済',
+      month: new Date().toISOString().slice(0, 7),
+      week_number: 1,
+      flag: 0,
+      start_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      due_date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      final_deadline: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      planned_hours: 2,
+      actual_hours: 2.5,
+      priority: 'A',
+      is_in_report: true,
+      daily_report_date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      remarks: '完了しました',
+      order: 0,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  ],
+  task_templates: [
+    {
+      id: 'sample-t1',
+      name: '標準開発フロー',
+      order: 0,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-t2',
+      name: 'Webアプリ開発テンプレート',
+      order: 1,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-t3',
+      name: 'モバイルアプリ開発テンプレート',
+      order: 2,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  ],
+  template_items: [
+    {
+      id: 'sample-ti1',
+      template_id: 'sample-t1',
+      system: '共通',
+      task_name: '要件定義',
+      status: '未着手',
+      planned_hours: 8,
+      priority: 'A',
+      remarks: '',
+      order: 0,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-ti2',
+      template_id: 'sample-t1',
+      system: '共通',
+      task_name: '基本設計',
+      status: '未着手',
+      planned_hours: 16,
+      priority: 'B',
+      remarks: '',
+      order: 1,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-ti3',
+      template_id: 'sample-t2',
+      system: 'Frontend',
+      task_name: 'React環境構築',
+      status: '未着手',
+      planned_hours: 4,
+      priority: 'A',
+      remarks: '',
+      order: 0,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-ti4',
+      template_id: 'sample-t2',
+      system: 'Frontend',
+      task_name: 'トップページ実装',
+      status: '未着手',
+      planned_hours: 8,
+      priority: 'B',
+      remarks: '',
+      order: 1,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-ti5',
+      template_id: 'sample-t2',
+      system: 'Backend',
+      task_name: 'DB設計・構築',
+      status: '未着手',
+      planned_hours: 8,
+      priority: 'A',
+      remarks: '',
+      order: 2,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-ti6',
+      template_id: 'sample-t3',
+      system: 'iOS/Android',
+      task_name: 'Flutter環境構築',
+      status: '未着手',
+      planned_hours: 4,
+      priority: 'A',
+      remarks: '',
+      order: 0,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    },
+    {
+      id: 'sample-ti7',
+      template_id: 'sample-t3',
+      system: 'Design',
+      task_name: 'UI/UXデザイン作成',
+      status: '未着手',
+      planned_hours: 16,
+      priority: 'A',
+      remarks: '',
+      order: 1,
+      owner_id: 'guest',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  ],
   settings: {
     id: 'guest-settings',
     ai_models: [],
@@ -97,7 +318,7 @@ const initialGuestStore: GuestStore = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   }
-};
+});
 
 const loadGuestStore = (): GuestStore => {
   const stored = localStorage.getItem(GUEST_STORAGE_KEY);
@@ -108,7 +329,7 @@ const loadGuestStore = (): GuestStore => {
       console.error('Failed to parse guest store:', e);
     }
   }
-  return { ...initialGuestStore };
+  return getInitialGuestStore();
 };
 
 // Simple observer system for guest mode
@@ -143,8 +364,9 @@ export const taskService = {
 
   async cleanupUserData(userId: string) {
     if (this.isGuest) {
-      guestStore = { ...initialGuestStore };
+      guestStore = getInitialGuestStore();
       saveGuestStore(guestStore);
+      notifyGuestObservers();
       return;
     }
     console.log('Cleaning up data for user:', userId);
@@ -282,6 +504,7 @@ export const taskService = {
       guestStore.parent_tasks = [];
       guestStore.sub_tasks = [];
       saveGuestStore(guestStore);
+      notifyGuestObservers();
       return;
     }
     if (!auth.currentUser) throw new Error('User not authenticated');
