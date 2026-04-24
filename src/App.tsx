@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { auth } from './firebase';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   OAuthProvider, 
   signOut,
@@ -21,30 +23,91 @@ import { taskService } from './services/taskService';
 import { ParentTask, UserSettings } from './types';
 import { LogIn, Loader2 } from 'lucide-react';
 
+function createGoogleAuthProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
+function createMicrosoftAuthProvider(): OAuthProvider {
+  const provider = new OAuthProvider('microsoft.com');
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
+const POPUP_FALLBACK_TO_REDIRECT_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/cancelled-popup-request',
+  'auth/internal-error',
+  'auth/web-storage-unsupported',
+]);
+
+/** Set to `true` when Microsoft sign-in should be offered again. */
+const MICROSOFT_SIGN_IN_ENABLED = false;
+
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isGuestLoading, setIsGuestLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedParentTask, setSelectedParentTask] = useState<ParentTask | null>(null);
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
   const [parentTasks, setParentTasks] = useState<ParentTask[]>([]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
 
-  useEffect(() => {
-    console.log('Setting up onAuthStateChanged listener...');
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      console.log('Auth state changed:', user ? `User logged in: ${user.email}` : 'No user');
-      setUser(user);
-      if (user) {
-        setIsGuest(user.isAnonymous);
-        taskService.isGuest = user.isAnonymous;
-      }
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
+  const handleAuthError = useCallback((error: any) => {
+    console.error('Auth error details:', error);
+
+    const currentDomain = window.location.hostname;
+
+    if (error.code === 'auth/popup-blocked') {
+      alert('ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。\n(Popup was blocked. Please allow popups for this site.)');
+    } else if (error.code === 'auth/unauthorized-domain') {
+      alert(`このドメイン(${currentDomain})はFirebaseで許可されていません。Firebase Consoleの「Authentication」>「Settings」>「Authorized domains」に現在のURLを追加してください（例: localhost、127.0.0.1 は別々に追加）。\n(This domain is not authorized. Add ${currentDomain} to Authorized domains in Firebase Console. Note: localhost and 127.0.0.1 are separate entries.)`);
+    } else if (error.code === 'auth/operation-not-allowed') {
+      alert('Firebase コンソールで「Authentication」>「Sign-in method」から Google ログインを有効にしてください。\n(Enable Google as a sign-in provider in Firebase Console > Authentication > Sign-in method.)');
+    } else if (error.code === 'auth/admin-restricted-operation') {
+      console.log('Anonymous Auth is disabled. Using local guest mode.');
+    } else if (error.code === 'auth/network-request-failed') {
+      console.warn('Network request failed. Falling back to local guest mode.');
+      alert('ネットワーク接続に失敗しました。オフラインか、Firebaseへの接続が遮断されている可能性があります。ゲストモードで続行できます。\n(Network request failed. You might be offline or the connection to Firebase is blocked. You can continue in Guest Mode.)');
+    } else if (error.code === 'auth/popup-closed-by-user') {
+      console.log('User closed the login popup');
+    } else {
+      alert(`ログインに失敗しました: ${error.message || 'Unknown error'}\n(Error Code: ${error.code})`);
+    }
   }, []);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    (async () => {
+      try {
+        const redirectResult = await getRedirectResult(auth);
+        if (redirectResult?.user) {
+          console.log('OAuth redirect sign-in completed:', redirectResult.user.email ?? redirectResult.user.uid);
+        }
+      } catch (error: any) {
+        console.error('getRedirectResult failed:', error);
+        handleAuthError(error);
+      }
+
+      console.log('Setting up onAuthStateChanged listener...');
+      unsubscribe = onAuthStateChanged(auth, (user) => {
+        console.log('Auth state changed:', user ? `User logged in: ${user.email}` : 'No user');
+        setUser(user);
+        if (user) {
+          setIsGuest(user.isAnonymous);
+          taskService.isGuest = user.isAnonymous;
+        }
+        setIsAuthReady(true);
+      });
+    })();
+
+    return () => unsubscribe?.();
+  }, [handleAuthError]);
 
   useEffect(() => {
     if (user || isGuest) {
@@ -87,17 +150,24 @@ export default function App() {
   const handleLogin = async () => {
     setIsLoggingIn(true);
     console.log('Starting Google login with popup...');
+    const provider = createGoogleAuthProvider();
     try {
-      const provider = new GoogleAuthProvider();
-      // Force account selection to avoid automatic login with wrong account
-      provider.setCustomParameters({ prompt: 'select_account' });
-      
-      // Use signInWithPopup which is generally more reliable in modern browsers
       const result = await signInWithPopup(auth, provider);
       console.log('Google login successful, user:', result.user.email);
     } catch (error: any) {
       console.error('Google login failed:', error);
-      handleAuthError(error);
+      if (POPUP_FALLBACK_TO_REDIRECT_CODES.has(error?.code)) {
+        try {
+          console.warn('Falling back to signInWithRedirect after:', error.code);
+          await signInWithRedirect(auth, createGoogleAuthProvider());
+          return;
+        } catch (redirectErr: any) {
+          console.error('Google redirect sign-in failed:', redirectErr);
+          handleAuthError(redirectErr);
+        }
+      } else {
+        handleAuthError(error);
+      }
     } finally {
       setIsLoggingIn(false);
     }
@@ -106,39 +176,24 @@ export default function App() {
   const handleMicrosoftLogin = async () => {
     setIsLoggingIn(true);
     console.log('Starting Microsoft login...');
+    const provider = createMicrosoftAuthProvider();
     try {
-      const provider = new OAuthProvider('microsoft.com');
-      // Force account selection
-      provider.setCustomParameters({ prompt: 'select_account' });
-      
       await signInWithPopup(auth, provider);
       console.log('Microsoft login successful');
     } catch (error: any) {
-      handleAuthError(error);
+      if (POPUP_FALLBACK_TO_REDIRECT_CODES.has(error?.code)) {
+        try {
+          console.warn('Falling back to signInWithRedirect (Microsoft) after:', error.code);
+          await signInWithRedirect(auth, createMicrosoftAuthProvider());
+          return;
+        } catch (redirectErr: any) {
+          handleAuthError(redirectErr);
+        }
+      } else {
+        handleAuthError(error);
+      }
     } finally {
       setIsLoggingIn(false);
-    }
-  };
-
-  const handleAuthError = (error: any) => {
-    console.error('Auth error details:', error);
-    
-    const currentDomain = window.location.hostname;
-    
-    if (error.code === 'auth/popup-blocked') {
-      alert('ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。\n(Popup was blocked. Please allow popups for this site.)');
-    } else if (error.code === 'auth/unauthorized-domain') {
-      alert(`このドメイン(${currentDomain})はFirebaseで許可されていません。Firebase Consoleの「Authentication」>「Settings」>「Authorized domains」に現在のURLを追加してください。\n(This domain is not authorized. Please add ${currentDomain} to the "Authorized domains" list in Firebase Console.)`);
-    } else if (error.code === 'auth/admin-restricted-operation') {
-      console.log('Anonymous Auth is disabled. Using local guest mode.');
-    } else if (error.code === 'auth/network-request-failed') {
-      console.warn('Network request failed. Falling back to local guest mode.');
-      alert('ネットワーク接続に失敗しました。オフラインか、Firebaseへの接続が遮断されている可能性があります。ゲストモードで続行できます。\n(Network request failed. You might be offline or the connection to Firebase is blocked. You can continue in Guest Mode.)');
-    } else if (error.code === 'auth/popup-closed-by-user') {
-      // User closed the popup, no need for alert
-      console.log('User closed the login popup');
-    } else {
-      alert(`ログインに失敗しました: ${error.message || 'Unknown error'}\n(Error Code: ${error.code})`);
     }
   };
 
@@ -170,8 +225,10 @@ export default function App() {
           <div className="space-y-3">
             <button
               onClick={handleLogin}
-              disabled={isLoggingIn}
-              className="w-full py-4 bg-white text-[#1d1d1f] border border-black/10 rounded-2xl font-bold shadow-sm hover:bg-gray-50 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isLoggingIn || isGuestLoading}
+              className={`w-full py-4 bg-white text-[#1d1d1f] border border-black/10 rounded-2xl font-bold shadow-sm hover:bg-gray-50 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-3 ${
+                isLoggingIn ? 'opacity-50 cursor-not-allowed' : isGuestLoading ? 'cursor-wait' : ''
+              }`}
             >
               {isLoggingIn ? (
                 <Loader2 className="animate-spin" size={20} />
@@ -181,23 +238,36 @@ export default function App() {
               {isLoggingIn ? 'Signing in...' : 'Sign in with Google'}
             </button>
             <button
+              type="button"
               onClick={handleMicrosoftLogin}
-              disabled={isLoggingIn}
-              className="w-full py-4 bg-[#2f2f2f] text-white rounded-2xl font-bold shadow-lg hover:bg-black hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!MICROSOFT_SIGN_IN_ENABLED || isLoggingIn || isGuestLoading}
+              title={
+                MICROSOFT_SIGN_IN_ENABLED
+                  ? undefined
+                  : 'Microsoft sign-in is temporarily unavailable'
+              }
+              className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all ${
+                MICROSOFT_SIGN_IN_ENABLED
+                  ? 'bg-[#2f2f2f] text-white shadow-lg hover:bg-black hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed'
+                  : 'bg-[#2f2f2f]/45 text-white/65 cursor-not-allowed border border-black/10'
+              }`}
             >
-              {isLoggingIn ? (
+              {MICROSOFT_SIGN_IN_ENABLED && isLoggingIn ? (
                 <Loader2 className="animate-spin" size={20} />
               ) : (
-                <img src="https://www.microsoft.com/favicon.ico" className="w-5 h-5" alt="Microsoft" />
+                <img src="https://www.microsoft.com/favicon.ico" className="w-5 h-5 opacity-60" alt="" />
               )}
-              {isLoggingIn ? 'Signing in...' : 'Sign in with Microsoft'}
+              {MICROSOFT_SIGN_IN_ENABLED && isLoggingIn
+                ? 'Signing in...'
+                : 'Sign in with Microsoft'}
             </button>
           </div>
           
           <div className="mt-8 pt-8 border-t border-black/5 space-y-4">
             <button 
+              type="button"
               onClick={async () => {
-                setIsLoggingIn(true);
+                setIsGuestLoading(true);
                 console.log('Attempting guest login...');
                 try {
                   // Try Firebase Anonymous Auth first
@@ -215,13 +285,16 @@ export default function App() {
                   setIsGuest(true);
                   console.log('Local guest mode activated');
                 } finally {
-                  setIsLoggingIn(false);
+                  setIsGuestLoading(false);
                 }
               }}
-              disabled={isLoggingIn}
-              className="w-full py-3 bg-gray-100 text-[#1d1d1f] rounded-2xl font-bold hover:bg-gray-200 transition-all disabled:opacity-50"
+              disabled={isGuestLoading || isLoggingIn}
+              className="w-full py-3 bg-gray-100 text-[#1d1d1f] rounded-2xl font-bold hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Try as Guest (Local Mode)
+              {isGuestLoading ? (
+                <Loader2 className="animate-spin" size={18} />
+              ) : null}
+              {isGuestLoading ? 'Starting guest mode...' : 'Try as Guest (Local Mode)'}
             </button>
             <p className="text-[10px] text-[#86868b]">
               Guest mode saves data in your browser's local storage.
