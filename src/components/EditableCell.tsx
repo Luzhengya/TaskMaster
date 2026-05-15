@@ -13,6 +13,7 @@ interface EditableCellProps {
   className?: string;
   placeholder?: string;
   rows?: number;
+  title?: string;
 }
 
 export const EditableCell: React.FC<EditableCellProps> = ({
@@ -21,7 +22,8 @@ export const EditableCell: React.FC<EditableCellProps> = ({
   type = 'text',
   className,
   placeholder,
-  rows = 1
+  rows = 1,
+  title
 }) => {
   const [localValue, setLocalValue] = useState(value);
   const [isEditing, setIsEditing] = useState(false);
@@ -73,6 +75,7 @@ export const EditableCell: React.FC<EditableCellProps> = ({
         className={cn("w-full bg-transparent focus:outline-none resize-none", className)}
         placeholder={placeholder}
         rows={rows}
+        title={title}
       />
     );
   }
@@ -92,6 +95,7 @@ export const EditableCell: React.FC<EditableCellProps> = ({
       onCompositionEnd={handleCompositionEnd}
       className={cn("w-full bg-transparent focus:outline-none", className)}
       placeholder={placeholder}
+      title={title}
     />
   );
 };

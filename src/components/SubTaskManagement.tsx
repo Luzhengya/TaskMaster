@@ -2,21 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { ParentTask, SubTask, SubTaskStatus, Priority } from '../types';
 import { taskService } from '../services/taskService';
 import { EditableCell } from './EditableCell';
-import { 
-  Plus, 
-  Lock, 
-  Unlock, 
-  Trash2, 
-  AlertCircle, 
+import {
+  Plus,
+  Lock,
+  Unlock,
+  Trash2,
+  AlertCircle,
   ChevronLeft,
   GripVertical,
   CheckSquare,
   Square,
-  Type,
   Columns
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { Resizable, ResizableBox } from 'react-resizable';
+import { Resizable } from 'react-resizable';
 import 'react-resizable/css/styles.css';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -39,7 +38,6 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   const [impactAssessment, setImpactAssessment] = useState<'小' | '中' | '大'>('小');
 
   // Table features state
-  const [isWordWrap, setIsWordWrap] = useState(false);
   const [frozenColumns, setFrozenColumns] = useState<number[]>([0, 1, 2, 3]); // Default frozen columns
   const [columnWidths, setColumnWidths] = useState<Record<number, number>>({
     0: 40,  // Drag
@@ -91,7 +89,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   }, [highlightTaskId, subTasks]);
 
   const handleAddRow = async () => {
-    await taskService.addSubTask({
+    const newTaskId = await taskService.addSubTask({
       parent_task_id: parentTask.id,
       system: '',
       month: '',
@@ -108,6 +106,28 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
       week_number: 0,
       flag: 0
     });
+
+    // Auto-focus new task row's task name field
+    if (newTaskId) {
+      setTimeout(() => {
+        const row = document.getElementById(`task-${newTaskId}`);
+        if (row) {
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Focus the task name input (column 3)
+          const taskNameCell = row.querySelector('td:nth-child(4)');
+          if (taskNameCell) {
+            const input = taskNameCell.querySelector('textarea, input');
+            if (input instanceof HTMLElement) {
+              input.focus();
+              // Select all text for easier editing
+              if (input instanceof HTMLTextAreaElement || input instanceof HTMLInputElement) {
+                input.select();
+              }
+            }
+          }
+        }
+      }, 100);
+    }
   };
 
   const handleUpdate = async (id: string, updates: Partial<SubTask>) => {
@@ -180,7 +200,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   const ResizableTh = ({ index, title, children }: { index: number, title?: string, children?: React.ReactNode }) => {
     const isFrozen = frozenColumns.includes(index);
     const left = getFrozenLeft(index);
-    
+
     return (
       <Resizable
         width={columnWidths[index]}
@@ -189,13 +209,13 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         draggableOpts={{ enableUserSelectHack: false }}
         handle={
           <span
-            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#007aff]/30 transition-colors z-30"
+            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#007aff] bg-gray-200/0 hover:bg-opacity-40 transition-colors z-30"
             onClick={(e) => e.stopPropagation()}
           />
         }
       >
         <th
-          style={{ 
+          style={{
             width: columnWidths[index],
             minWidth: columnWidths[index],
             left: isFrozen ? left : undefined,
@@ -208,11 +228,11 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
           )}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate" title={title}>{children}</span>
+            <span className="whitespace-normal break-words line-clamp-2" title={title}>{children}</span>
             <button
               onClick={() => toggleFrozenColumn(index)}
               className={cn(
-                "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5",
+                "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5 flex-shrink-0",
                 isFrozen ? "text-[#007aff] opacity-100" : "text-gray-400"
               )}
               title={isFrozen ? "固定を解除" : "列を固定"}
@@ -232,7 +252,6 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     '未着手': 'bg-gray-100 text-gray-700',
     '保留': 'bg-yellow-100 text-yellow-700',
     '着手遅れ': 'bg-orange-50 text-orange-600',
-    '着着手遅れ': 'bg-orange-100 text-orange-700',
     '期限遅れ': 'bg-red-200 text-red-800',
   };
 
@@ -250,17 +269,6 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         </div>
         
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <button
-            onClick={() => setIsWordWrap(!isWordWrap)}
-            className={cn(
-              "mac-button mac-button-secondary flex items-center gap-2",
-              isWordWrap && "bg-gray-200 border-[#007aff]/30 text-[#007aff]"
-            )}
-            title="自動改行の切り替え"
-          >
-            <Type size={18} />
-            <span>{isWordWrap ? '折り返しあり' : '自動改行'}</span>
-          </button>
           <button
             onClick={handleAddRow}
             className="mac-button mac-button-secondary flex items-center gap-2"
@@ -369,10 +377,8 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       <EditableCell
                                         value={task.system}
                                         onSave={(val) => handleUpdate(task.id, { system: val as string })}
-                                        className={cn(
-                                          "text-sm",
-                                          isWordWrap ? "whitespace-normal break-words" : "truncate"
-                                        )}
+                                        className="text-sm truncate"
+                                        title={task.system}
                                         placeholder="システム名"
                                       />
                                     )}
@@ -380,13 +386,11 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       <div className="flex items-center gap-2">
                                         <EditableCell
                                           type="textarea"
-                                          rows={isWordWrap ? 2 : 1}
+                                          rows={1}
                                           value={task.task_name}
                                           onSave={(val) => handleUpdate(task.id, { task_name: val as string })}
-                                          className={cn(
-                                            "font-medium text-sm py-1",
-                                            isWordWrap ? "whitespace-normal" : "truncate"
-                                          )}
+                                          className="font-medium text-sm py-1 truncate"
+                                          title={task.task_name}
                                           placeholder="タスク名"
                                         />
                                         {isDelayed && <AlertCircle size={14} className="text-red-500 animate-pulse flex-shrink-0" />}
@@ -464,13 +468,11 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                     {colIdx === 11 && (
                                       <EditableCell
                                         type="textarea"
-                                        rows={isWordWrap ? 2 : 1}
+                                        rows={1}
                                         value={task.remarks || ''}
                                         onSave={(val) => handleUpdate(task.id, { remarks: val as string })}
-                                        className={cn(
-                                          "text-sm py-1",
-                                          isWordWrap ? "whitespace-normal" : "truncate"
-                                        )}
+                                        className="text-sm py-1 truncate"
+                                        title={task.remarks || ''}
                                         placeholder="備考..."
                                       />
                                     )}
