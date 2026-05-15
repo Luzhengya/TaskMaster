@@ -657,7 +657,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
             </p>
             <div className="flex gap-3">
               <button
-                onClick={isClearingAll ? confirmClearAll : confirmDelete}
+                onClick={() => (isClearingAll ? confirmClearAll() : confirmDelete())}
                 className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
               >
                 削除する
