@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { FileUp, Loader2, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { taskService } from '../services/taskService';
 import { format } from 'date-fns';
 
@@ -25,11 +25,32 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-          const sheetName = workbook.SheetNames.find(name => name.toLowerCase() === 'import') || workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+          const data = e.target?.result as ArrayBuffer;
+          const workbook = new ExcelJS.Workbook();
+          await workbook.xlsx.load(data);
+          const worksheet =
+            workbook.worksheets.find(ws => ws.name.toLowerCase() === 'import') ??
+            workbook.worksheets[0];
+          if (!worksheet) {
+            throw new Error('Excel file contains no worksheets.');
+          }
+
+          const jsonData: any[][] = [];
+          worksheet.eachRow(row => {
+            const values = row.values;
+            if (!Array.isArray(values)) {
+              jsonData.push([]);
+              return;
+            }
+            jsonData.push(
+              values.slice(1).map(cell => {
+                if (cell && typeof cell === 'object' && 'result' in cell) {
+                  return (cell as ExcelJS.CellFormulaValue).result;
+                }
+                return cell;
+              }),
+            );
+          });
 
           if (jsonData.length < 3) {
             throw new Error('Excel file format is invalid. Data should start from row 3.');
@@ -136,7 +157,6 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     onDrop,
     accept: {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-      'application/vnd.ms-excel': ['.xls']
     },
     multiple: false
   });
@@ -171,7 +191,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             <p className="text-lg font-bold mb-2">
               {isDragActive ? 'Drop your file here' : 'Click or drag Excel file to import'}
             </p>
-            <p className="text-sm text-[#86868b] mb-6">Supports .xlsx and .xls formats</p>
+            <p className="text-sm text-[#86868b] mb-6">Supports .xlsx format</p>
             <div className="flex items-center gap-2 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-[#f5f5f7] px-4 py-2 rounded-full">
               <FileText size={12} />
               Weekly Report Format Required

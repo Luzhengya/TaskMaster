@@ -22,7 +22,7 @@ import {
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { Resizable } from 'react-resizable';
 import { taskService } from '../services/taskService';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -199,17 +199,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const data = parentTasks.map(t => ({
-        'Project Name': t.name,
-        'Deadline': t.deadline,
-        'Planned Hours': t.planned_hours,
-        'Created At': new Date(t.created_at).toLocaleDateString()
-      }));
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('WeeklyReport');
+      sheet.addRow(['Project Name', 'Deadline', 'Planned Hours', 'Created At']);
+      parentTasks.forEach(t => {
+        sheet.addRow([
+          t.name,
+          t.deadline,
+          t.planned_hours,
+          new Date(t.created_at).toLocaleDateString(),
+        ]);
+      });
 
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "WeeklyReport");
-      XLSX.writeFile(wb, `Weekly_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Weekly_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
     } finally {
