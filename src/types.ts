@@ -1,4 +1,4 @@
-export type SubTaskStatus = '遅れ' | '済' | '進行中' | '未着手' | '保留' | '着手遅れ' | '期限遅れ' | '着着手遅れ';
+export type SubTaskStatus = '遅れ' | '済' | '進行中' | '未着手' | '保留' | '着手遅れ' | '期限遅れ';
 export type Priority = 'A' | 'B' | 'C';
 
 export interface ParentTask {
@@ -38,6 +38,7 @@ export interface SubTask {
   week?: string;
   week_number: number;
   flag: number;
+  icon_data?: string; // SVG data or icon name from lucide-react
   created_at: string;
   updated_at: string;
   owner_id?: string;

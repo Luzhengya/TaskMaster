@@ -36,6 +36,8 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   const [delayModalTask, setDelayModalTask] = useState<SubTask | null>(null);
   const [delayReason, setDelayReason] = useState('他の作業の優先度が高くのため');
   const [impactAssessment, setImpactAssessment] = useState<'小' | '中' | '大'>('小');
+  const [iconModalTask, setIconModalTask] = useState<SubTask | null>(null);
+  const [iconInput, setIconInput] = useState('');
 
   // Table features state
   const [frozenColumns, setFrozenColumns] = useState<number[]>([0, 1, 2, 3]); // Default frozen columns
@@ -384,12 +386,36 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                     )}
                                     {colIdx === 3 && (
                                       <div className="flex items-center gap-2">
+                                        {/* Icon display/selector */}
+                                        <button
+                                          onClick={() => {
+                                            setIconModalTask(task);
+                                            setIconInput(task.icon_data || '');
+                                          }}
+                                          className="flex-shrink-0 p-1 rounded hover:bg-gray-200 transition-colors group"
+                                          title="Click to add or edit icon"
+                                        >
+                                          {task.icon_data ? (
+                                            task.icon_data.startsWith('<') ? (
+                                              <div
+                                                className="w-5 h-5"
+                                                dangerouslySetInnerHTML={{ __html: task.icon_data }}
+                                              />
+                                            ) : (
+                                              <span className="text-sm">{task.icon_data}</span>
+                                            )
+                                          ) : (
+                                            <div className="w-5 h-5 text-gray-300 group-hover:text-gray-400 transition-colors flex items-center justify-center">
+                                              <span className="text-lg">+</span>
+                                            </div>
+                                          )}
+                                        </button>
                                         <EditableCell
                                           type="textarea"
                                           rows={1}
                                           value={task.task_name}
                                           onSave={(val) => handleUpdate(task.id, { task_name: val as string })}
-                                          className="font-medium text-sm py-1 truncate"
+                                          className="font-medium text-sm py-1 truncate flex-1"
                                           title={task.task_name}
                                           placeholder="タスク名"
                                         />
@@ -589,6 +615,105 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
               </button>
               <button
                 onClick={() => setDeleteId(null)}
+                className="flex-1 py-2.5 bg-gray-100 text-[#1d1d1f] rounded-xl font-bold hover:bg-gray-200 transition-colors"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {iconModalTask && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="mac-card max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <h3 className="text-lg font-bold text-[#1d1d1f] mb-4">アイコンを選択</h3>
+
+            <div className="space-y-4 mb-6">
+              {/* Preset icons from lucide-react */}
+              <div>
+                <label className="block text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-3">
+                  プリセット
+                </label>
+                <div className="grid grid-cols-6 gap-2">
+                  {[
+                    { label: 'NEW', emoji: '🆕' },
+                    { label: 'HOT', emoji: '🔥' },
+                    { label: 'STAR', emoji: '⭐' },
+                    { label: '✓', emoji: '✓' },
+                    { label: '!', emoji: '⚠️' },
+                    { label: 'BUG', emoji: '🐛' },
+                  ].map((item) => (
+                    <button
+                      key={item.label}
+                      onClick={() => {
+                        handleUpdate(iconModalTask.id, { icon_data: item.emoji });
+                        setIconModalTask(null);
+                      }}
+                      className="p-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-100 flex items-center justify-center"
+                      title={item.label}
+                    >
+                      <span className="text-xl">{item.emoji}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom SVG input */}
+              <div>
+                <label className="block text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">
+                  カスタム SVG または Emoji
+                </label>
+                <textarea
+                  value={iconInput}
+                  onChange={(e) => setIconInput(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#f5f5f7] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#007aff]/20 text-sm min-h-[80px] font-mono text-[11px]"
+                  placeholder="SVG コード、Emoji、または任意のテキスト"
+                />
+                <p className="text-[9px] text-[#86868b] mt-2">
+                  例: SVG コード: &lt;svg&gt;...&lt;/svg&gt; または Emoji: 😀
+                </p>
+              </div>
+            </div>
+
+            {/* Preview */}
+            {iconInput && (
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg flex items-center justify-center min-h-[60px]">
+                {iconInput.startsWith('<') ? (
+                  <div
+                    className="w-12 h-12"
+                    dangerouslySetInnerHTML={{ __html: iconInput }}
+                  />
+                ) : (
+                  <span className="text-4xl">{iconInput}</span>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  if (iconInput) {
+                    handleUpdate(iconModalTask.id, { icon_data: iconInput });
+                  }
+                  setIconModalTask(null);
+                }}
+                disabled={!iconInput}
+                className="flex-1 py-2.5 bg-[#007aff] text-white rounded-xl font-bold hover:bg-[#0070e0] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                保存する
+              </button>
+              <button
+                onClick={() => {
+                  handleUpdate(iconModalTask.id, { icon_data: undefined });
+                  setIconModalTask(null);
+                }}
+                className="flex-1 py-2.5 bg-gray-100 text-[#1d1d1f] rounded-xl font-bold hover:bg-gray-200 transition-colors"
+              >
+                削除する
+              </button>
+              <button
+                onClick={() => setIconModalTask(null)}
                 className="flex-1 py-2.5 bg-gray-100 text-[#1d1d1f] rounded-xl font-bold hover:bg-gray-200 transition-colors"
               >
                 キャンセル
