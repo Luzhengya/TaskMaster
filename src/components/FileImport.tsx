@@ -1,12 +1,60 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { FileUp, Loader2, CheckCircle2, AlertCircle, FileText } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import {
+  FileUp,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
+  Download,
+} from 'lucide-react';
+import ExcelJS from 'exceljs';
 import { taskService } from '../services/taskService';
-import { format } from 'date-fns';
+import { Priority, SubTaskStatus } from '../types';
+import {
+  buildColumnIndexMap,
+  DATA_START_ROW_INDEX,
+  fillDownMergedFields,
+  getRowValue,
+  HEADER_ROW_INDEX,
+  ImportField,
+  TEMPLATE_HEADERS,
+} from '../importColumns';
 
 interface FileImportProps {
   onImportComplete: () => void;
+}
+
+const NO_DATA_MESSAGE = '没有需要导入的数据';
+
+/** Served from `public/task-import-template.xlsx` (Vite static asset). */
+const IMPORT_TEMPLATE_URL = '/task-import-template.xlsx';
+const IMPORT_TEMPLATE_FILENAME = 'taskimportfile.xlsx';
+
+function cellValue(cell: unknown): unknown {
+  if (cell && typeof cell === 'object' && 'result' in cell) {
+    return (cell as ExcelJS.CellFormulaValue).result;
+  }
+  return cell;
+}
+
+function worksheetToRows(worksheet: ExcelJS.Worksheet): unknown[][] {
+  const jsonData: unknown[][] = [];
+  worksheet.eachRow(row => {
+    const values = row.values;
+    if (!Array.isArray(values)) {
+      jsonData.push([]);
+      return;
+    }
+    jsonData.push(values.slice(1).map(cellValue));
+  });
+  return jsonData;
+}
+
+function isRowEmpty(row: unknown[]): boolean {
+  return row.every(
+    cell => cell === null || cell === undefined || String(cell).trim() === '',
+  );
 }
 
 export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
@@ -23,24 +71,39 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
 
     try {
       const reader = new FileReader();
-      reader.onload = async (e) => {
+      reader.onload = async e => {
         try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-          const sheetName = workbook.SheetNames.find(name => name.toLowerCase() === 'import') || workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-
-          if (jsonData.length < 3) {
-            throw new Error('Excel file format is invalid. Data should start from row 3.');
+          const data = e.target?.result as ArrayBuffer;
+          const workbook = new ExcelJS.Workbook();
+          await workbook.xlsx.load(data);
+          const worksheet =
+            workbook.worksheets.find(ws => ws.name.toLowerCase() === 'import') ??
+            workbook.worksheets[0];
+          if (!worksheet) {
+            throw new Error('Excel 文件中没有工作表。');
           }
 
-          const rows = jsonData.slice(2); // Data starts from Row 3 (index 2)
-          
-          // Group rows by project name (Column E - index 4)
-          const projectGroups = new Map<string, any[]>();
-          for (const row of rows) {
-            const projectName = String(row[4] || '').trim();
+          const allRows = worksheetToRows(worksheet);
+          if (allRows.length < DATA_START_ROW_INDEX + 1) {
+            throw new Error(NO_DATA_MESSAGE);
+          }
+
+          const columnMap = buildColumnIndexMap(allRows[HEADER_ROW_INDEX]);
+          const rawDataRows = allRows
+            .slice(DATA_START_ROW_INDEX)
+            .filter(row => !isRowEmpty(row));
+
+          if (rawDataRows.length === 0) {
+            throw new Error(NO_DATA_MESSAGE);
+          }
+
+          const dataRows = fillDownMergedFields(rawDataRows, columnMap);
+
+          const projectGroups = new Map<string, unknown[][]>();
+          for (const row of dataRows) {
+            const projectName = String(
+              getRowValue(row, columnMap, 'projectName') ?? '',
+            ).trim();
             if (!projectName) continue;
             if (!projectGroups.has(projectName)) {
               projectGroups.set(projectName, []);
@@ -48,7 +111,11 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             projectGroups.get(projectName)?.push(row);
           }
 
-          const parseDate = (val: any) => {
+          if (projectGroups.size === 0) {
+            throw new Error(NO_DATA_MESSAGE);
+          }
+
+          const parseDate = (val: unknown) => {
             if (!val) return '';
             if (val instanceof Date) return val.toISOString().split('T')[0];
             const str = String(val);
@@ -56,61 +123,78 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             return str;
           };
 
-          const parseNumber = (val: any) => {
+          const parseNumber = (val: unknown) => {
             const n = Number(val);
             return isNaN(n) ? 0 : n;
           };
 
+          const str = (row: unknown[], field: ImportField, fallback = '') =>
+            String(getRowValue(row, columnMap, field) ?? fallback);
+
           for (const [projectName, projectRows] of projectGroups.entries()) {
-            // Calculate parent task metrics
             let totalPlanned = 0;
             let totalActual = 0;
             let completedCount = 0;
             const totalCount = projectRows.length;
-            
-            // Use Column H (index 7) from the LAST row for parent task deadline
+
             const lastRow = projectRows[projectRows.length - 1];
-            const deadline = parseDate(lastRow[7]);
+            const deadline = parseDate(getRowValue(lastRow, columnMap, 'dueDate'));
 
             for (const row of projectRows) {
-              totalPlanned += parseNumber(row[16]); // Column Q (index 16)
-              totalActual += parseNumber(row[17]); // Column R (index 17)
-              if (String(row[9] || '').includes('済')) { // Column J (index 9)
+              totalPlanned += parseNumber(
+                getRowValue(row, columnMap, 'plannedHours'),
+              );
+              totalActual += parseNumber(
+                getRowValue(row, columnMap, 'actualHours'),
+              );
+              if (str(row, 'status').includes('済')) {
                 completedCount++;
               }
             }
 
-            const progress = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+            const progress =
+              totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
-            // Add Parent Task
             const parentId = await taskService.addParentTask({
               name: projectName,
               deadline: deadline || new Date().toISOString().split('T')[0],
               planned_hours: totalPlanned,
               actual_hours: totalActual,
-              progress: progress
+              progress,
             });
 
             if (!parentId) continue;
 
-            // Add Sub Tasks
             for (const row of projectRows) {
+              const dailyReport = parseDate(
+                getRowValue(row, columnMap, 'dailyReport'),
+              );
+
               await taskService.addSubTask({
                 parent_task_id: parentId,
-                system: String(row[0] || ''), // Column A (index 0)
-                month: String(row[2] || ''), // Column C (index 2)
-                daily_report_date: new Date().toISOString().split('T')[0], // Default to today
-                start_date: parseDate(row[6]), // Column G (index 6)
-                due_date: parseDate(row[7]), // Column H (index 7)
-                final_deadline: parseDate(row[8]), // Column I (index 8)
-                status: String(row[9] || '未着手') as any, // Column J (index 9)
-                task_name: String(row[10] || ''), // Column K (index 10)
-                planned_hours: parseNumber(row[16]), // Column Q (index 16)
-                actual_hours: parseNumber(row[17]), // Column R (index 17)
-                priority: (row[18] || 'B') as any, // Column S (index 18)
-                remarks: String(row[19] || ''), // Column T (index 19)
+                system: str(row, 'system'),
+                month: str(row, 'month'),
+                daily_report_date:
+                  dailyReport || new Date().toISOString().split('T')[0],
+                start_date: parseDate(getRowValue(row, columnMap, 'startDate')),
+                due_date: parseDate(getRowValue(row, columnMap, 'dueDate')),
+                final_deadline: parseDate(
+                  getRowValue(row, columnMap, 'finalDeadline'),
+                ),
+                status: (str(row, 'status', '未着手') || '未着手') as SubTaskStatus,
+                task_name: str(row, 'taskName'),
+                planned_hours: parseNumber(
+                  getRowValue(row, columnMap, 'plannedHours'),
+                ),
+                actual_hours: parseNumber(
+                  getRowValue(row, columnMap, 'actualHours'),
+                ),
+                priority: (str(row, 'priority', 'B') || 'B') as Priority,
+                remarks: str(row, 'remarks'),
+                weekday: str(row, 'weekday'),
+                week: str(row, 'week'),
                 week_number: 0,
-                flag: 0
+                flag: 0,
               });
             }
           }
@@ -119,15 +203,18 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           setTimeout(() => {
             onImportComplete();
           }, 1500);
-        } catch (err: any) {
-          setError(err.message || 'Failed to process Excel file.');
+        } catch (err: unknown) {
+          const message =
+            err instanceof Error ? err.message : '导入 Excel 失败。';
+          setError(message);
         } finally {
           setIsImporting(false);
         }
       };
       reader.readAsArrayBuffer(file);
-    } catch (err: any) {
-      setError(err.message || 'Failed to read file.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '读取文件失败。';
+      setError(message);
       setIsImporting(false);
     }
   }, [onImportComplete]);
@@ -135,33 +222,36 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-      'application/vnd.ms-excel': ['.xls']
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [
+        '.xlsx',
+      ],
     },
-    multiple: false
+    multiple: false,
   });
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-4">
       <div
         {...getRootProps()}
         className={`relative border-2 border-dashed rounded-3xl p-12 transition-all duration-300 flex flex-col items-center justify-center cursor-pointer ${
-          isDragActive ? 'border-[#007aff] bg-[#007aff]/5' : 'border-black/10 hover:border-[#007aff]/50 hover:bg-black/[0.02]'
+          isDragActive
+            ? 'border-[#007aff] bg-[#007aff]/5'
+            : 'border-black/10 hover:border-[#007aff]/50 hover:bg-black/[0.02]'
         } ${isImporting ? 'pointer-events-none opacity-50' : ''}`}
       >
         <input {...getInputProps()} />
-        
+
         {isImporting ? (
           <div className="text-center">
             <Loader2 className="w-12 h-12 text-[#007aff] animate-spin mx-auto mb-4" />
-            <p className="text-lg font-bold">Importing Data...</p>
-            <p className="text-sm text-[#86868b]">Please wait while we process your file</p>
+            <p className="text-lg font-bold">正在导入…</p>
+            <p className="text-sm text-[#86868b]">请稍候</p>
           </div>
         ) : success ? (
           <div className="text-center animate-in zoom-in-95">
             <CheckCircle2 className="w-12 h-12 text-[#28c840] mx-auto mb-4" />
-            <p className="text-lg font-bold">Import Successful!</p>
-            <p className="text-sm text-[#86868b]">Redirecting to task list...</p>
+            <p className="text-lg font-bold">导入成功</p>
+            <p className="text-sm text-[#86868b]">正在跳转到任务列表…</p>
           </div>
         ) : (
           <div className="text-center">
@@ -169,12 +259,15 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
               <FileUp className="w-8 h-8 text-[#007aff]" />
             </div>
             <p className="text-lg font-bold mb-2">
-              {isDragActive ? 'Drop your file here' : 'Click or drag Excel file to import'}
+              {isDragActive ? '松开以上传文件' : '点击或拖拽 Excel 文件导入'}
             </p>
-            <p className="text-sm text-[#86868b] mb-6">Supports .xlsx and .xls formats</p>
+            <p className="text-sm text-[#86868b] mb-6">
+              第 1 行为表头，数据从第 2 行开始（{TEMPLATE_HEADERS.projectName}、
+              {TEMPLATE_HEADERS.taskName} 等）
+            </p>
             <div className="flex items-center gap-2 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-[#f5f5f7] px-4 py-2 rounded-full">
               <FileText size={12} />
-              Weekly Report Format Required
+              周报模板格式
             </div>
           </div>
         )}
@@ -185,6 +278,17 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             {error}
           </div>
         )}
+      </div>
+
+      <div className="flex justify-center">
+        <a
+          href={IMPORT_TEMPLATE_URL}
+          download={IMPORT_TEMPLATE_FILENAME}
+          className="mac-button mac-button-secondary inline-flex items-center gap-2 text-sm font-bold"
+        >
+          <Download size={18} />
+          下载导入模板（Excel）
+        </a>
       </div>
     </div>
   );

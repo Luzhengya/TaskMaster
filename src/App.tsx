@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { auth } from './firebase';
+import { waitForAuthRedirectResult } from './authInit';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
   signInWithRedirect,
-  getRedirectResult,
   GoogleAuthProvider, 
   OAuthProvider, 
   signOut,
@@ -37,7 +37,6 @@ function createMicrosoftAuthProvider(): OAuthProvider {
 
 const POPUP_FALLBACK_TO_REDIRECT_CODES = new Set([
   'auth/popup-blocked',
-  'auth/cancelled-popup-request',
   'auth/internal-error',
   'auth/web-storage-unsupported',
 ]);
@@ -56,6 +55,7 @@ export default function App() {
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
   const [parentTasks, setParentTasks] = useState<ParentTask[]>([]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const loginInFlightRef = useRef(false);
 
   const handleAuthError = useCallback((error: any) => {
     console.error('Auth error details:', error);
@@ -81,21 +81,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     let unsubscribe: (() => void) | undefined;
 
     (async () => {
       try {
-        const redirectResult = await getRedirectResult(auth);
-        if (redirectResult?.user) {
-          console.log('OAuth redirect sign-in completed:', redirectResult.user.email ?? redirectResult.user.uid);
-        }
+        await waitForAuthRedirectResult();
       } catch (error: any) {
         console.error('getRedirectResult failed:', error);
-        handleAuthError(error);
+        if (!cancelled) handleAuthError(error);
       }
+
+      if (cancelled) return;
 
       console.log('Setting up onAuthStateChanged listener...');
       unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (cancelled) return;
         console.log('Auth state changed:', user ? `User logged in: ${user.email}` : 'No user');
         setUser(user);
         if (user) {
@@ -106,7 +107,11 @@ export default function App() {
       });
     })();
 
-    return () => unsubscribe?.();
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      setIsAuthReady(false);
+    };
   }, [handleAuthError]);
 
   useEffect(() => {
@@ -147,13 +152,29 @@ export default function App() {
     }
   }, [user, isGuest]);
 
+  const signInWithGooglePopup = async () => {
+    await waitForAuthRedirectResult();
+    const result = await signInWithPopup(auth, createGoogleAuthProvider());
+    console.log('Google login successful, user:', result.user.email);
+  };
+
   const handleLogin = async () => {
+    if (loginInFlightRef.current || isLoggingIn || !isAuthReady) return;
+    loginInFlightRef.current = true;
     setIsLoggingIn(true);
     console.log('Starting Google login with popup...');
-    const provider = createGoogleAuthProvider();
     try {
-      const result = await signInWithPopup(auth, provider);
-      console.log('Google login successful, user:', result.user.email);
+      try {
+        await signInWithGooglePopup();
+      } catch (error: any) {
+        if (error?.code === 'auth/cancelled-popup-request') {
+          console.warn('Popup request cancelled, retrying once...');
+          await new Promise(resolve => setTimeout(resolve, 300));
+          await signInWithGooglePopup();
+          return;
+        }
+        throw error;
+      }
     } catch (error: any) {
       console.error('Google login failed:', error);
       if (POPUP_FALLBACK_TO_REDIRECT_CODES.has(error?.code)) {
@@ -169,15 +190,19 @@ export default function App() {
         handleAuthError(error);
       }
     } finally {
+      loginInFlightRef.current = false;
       setIsLoggingIn(false);
     }
   };
 
   const handleMicrosoftLogin = async () => {
+    if (loginInFlightRef.current || isLoggingIn || !isAuthReady) return;
+    loginInFlightRef.current = true;
     setIsLoggingIn(true);
     console.log('Starting Microsoft login...');
     const provider = createMicrosoftAuthProvider();
     try {
+      await waitForAuthRedirectResult();
       await signInWithPopup(auth, provider);
       console.log('Microsoft login successful');
     } catch (error: any) {
@@ -193,6 +218,7 @@ export default function App() {
         handleAuthError(error);
       }
     } finally {
+      loginInFlightRef.current = false;
       setIsLoggingIn(false);
     }
   };
@@ -220,12 +246,13 @@ export default function App() {
           </div>
           <h1 className="text-4xl font-bold text-[#1d1d1f] mb-4 tracking-tight">TaskMaster</h1>
           <p className="text-[#86868b] mb-10 leading-relaxed text-sm">
-            Your personal productivity hub. Manage tasks, import reports, and get AI-powered summaries with a clean macOS experience.
+            Your personal productivity hub. Manage tasks, import reports, and get AI-powered summaries
           </p>
           <div className="space-y-3">
             <button
+              type="button"
               onClick={handleLogin}
-              disabled={isLoggingIn || isGuestLoading}
+              disabled={!isAuthReady || isLoggingIn || isGuestLoading}
               className={`w-full py-4 bg-white text-[#1d1d1f] border border-black/10 rounded-2xl font-bold shadow-sm hover:bg-gray-50 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-3 ${
                 isLoggingIn ? 'opacity-50 cursor-not-allowed' : isGuestLoading ? 'cursor-wait' : ''
               }`}
@@ -294,7 +321,7 @@ export default function App() {
               {isGuestLoading ? (
                 <Loader2 className="animate-spin" size={18} />
               ) : null}
-              {isGuestLoading ? 'Starting guest mode...' : 'Try as Guest (Local Mode)'}
+              {isGuestLoading ? 'Starting guest mode...' : 'Try as Guest'}
             </button>
             <p className="text-[10px] text-[#86868b]">
               Guest mode saves data in your browser's local storage.
