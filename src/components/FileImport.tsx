@@ -191,8 +191,8 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
                 ),
                 priority: (str(row, 'priority', 'B') || 'B') as Priority,
                 remarks: str(row, 'remarks'),
-                weekday: str(row, 'weekday') || undefined,
-                week: str(row, 'week') || undefined,
+                weekday: str(row, 'weekday'),
+                week: str(row, 'week'),
                 week_number: 0,
                 flag: 0,
               });
