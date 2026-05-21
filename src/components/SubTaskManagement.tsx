@@ -15,8 +15,6 @@ import {
   Columns
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { Resizable } from 'react-resizable';
-import 'react-resizable/css/styles.css';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -56,13 +54,6 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     11: 200,// Remarks
     12: 60  // Actions
   });
-
-  const onResize = (index: number) => (e: any, { size }: any) => {
-    setColumnWidths(prev => ({
-      ...prev,
-      [index]: size.width
-    }));
-  };
 
   const toggleFrozenColumn = (index: number) => {
     setFrozenColumns(prev => 
@@ -136,8 +127,12 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     const task = subTasks.find(st => st.id === id);
     if (!task) return;
 
-    const newUpdates = { ...updates };
-    
+    // Clean up undefined values (Firestore doesn't support undefined)
+    const newUpdates: Partial<SubTask> = {};
+    for (const [key, value] of Object.entries(updates)) {
+      newUpdates[key as keyof SubTask] = value === undefined ? '' : value as any;
+    }
+
     // Auto-calculate deadline if due_date or planned_hours changes
     if ('due_date' in updates || 'planned_hours' in updates) {
       const dueDate = updates.due_date ?? task.due_date;
@@ -153,7 +148,13 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
       setImpactAssessment('小');
     }
 
-    await taskService.updateSubTask(id, newUpdates);
+    console.log('[handleUpdate] Updating task', id, 'with', newUpdates);
+    try {
+      await taskService.updateSubTask(id, newUpdates);
+      console.log('[handleUpdate] Update successful');
+    } catch (err) {
+      console.error('[handleUpdate] Update failed:', err);
+    }
   };
 
   const handleDelaySubmit = async () => {
@@ -199,53 +200,71 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     return left;
   };
 
+  const handleMouseDownResize = (index: number) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = columnWidths[index];
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(40, startWidth + (moveEvent.clientX - startX));
+      setColumnWidths(prev => ({ ...prev, [index]: newWidth }));
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   const ResizableTh = ({ index, title, children }: { index: number, title?: string, children?: React.ReactNode }) => {
     const isFrozen = frozenColumns.includes(index);
     const left = getFrozenLeft(index);
 
     return (
-      <Resizable
-        width={columnWidths[index]}
-        height={0}
-        onResize={onResize(index)}
-        draggableOpts={{ enableUserSelectHack: false }}
-        handle={
-          <span
-            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#007aff] bg-gray-200/0 hover:bg-opacity-40 transition-colors z-50"
-            onClick={(e) => e.stopPropagation()}
-            style={{ pointerEvents: 'auto' }}
-          />
-        }
+      <th
+        style={{
+          width: columnWidths[index],
+          minWidth: columnWidths[index],
+          maxWidth: columnWidths[index],
+          left: isFrozen ? left : undefined,
+          position: isFrozen ? 'sticky' : 'relative',
+          zIndex: isFrozen ? 40 : 10,
+        }}
+        className={cn(
+          "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group",
+          isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
+        )}
       >
-        <th
-          style={{
-            width: columnWidths[index],
-            minWidth: columnWidths[index],
-            left: isFrozen ? left : undefined,
-            position: isFrozen ? 'sticky' : 'relative',
-            zIndex: isFrozen ? 40 : 10,
-            overflow: 'visible'
-          }}
-          className={cn(
-            "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group relative",
-            isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
-          )}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="whitespace-normal break-words line-clamp-2" title={title}>{children}</span>
-            <button
-              onClick={() => toggleFrozenColumn(index)}
-              className={cn(
-                "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5 flex-shrink-0 relative z-10",
-                isFrozen ? "text-[#007aff] opacity-100" : "text-gray-400"
-              )}
-              title={isFrozen ? "固定を解除" : "列を固定"}
-            >
-              <Columns size={10} />
-            </button>
-          </div>
-        </th>
-      </Resizable>
+        <div className="flex items-center justify-between gap-2 pr-2">
+          <span className="whitespace-normal break-words line-clamp-2 flex-1 min-w-0" title={title}>{children}</span>
+          <button
+            onClick={() => toggleFrozenColumn(index)}
+            className={cn(
+              "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5 flex-shrink-0",
+              isFrozen ? "text-[#007aff] opacity-100" : "text-gray-400"
+            )}
+            title={isFrozen ? "固定を解除" : "列を固定"}
+          >
+            <Columns size={10} />
+          </button>
+        </div>
+        {/* Resize handle - always visible at right edge */}
+        <div
+          onMouseDown={handleMouseDownResize(index)}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-0 right-0 bottom-0 w-2 cursor-col-resize hover:bg-[#007aff]/50 active:bg-[#007aff] transition-colors"
+          style={{ zIndex: 100 }}
+          title="ドラッグで列幅を調整"
+        />
+      </th>
     );
   };
 
