@@ -243,19 +243,23 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
           isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
         )}
       >
-        <div className="flex items-center justify-between gap-2 pr-2">
-          <span className="whitespace-normal break-words line-clamp-2 flex-1 min-w-0" title={title}>{children}</span>
-          <button
-            onClick={() => toggleFrozenColumn(index)}
-            className={cn(
-              "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5 flex-shrink-0",
-              isFrozen ? "text-[#007aff] opacity-100" : "text-gray-400"
-            )}
-            title={isFrozen ? "固定を解除" : "列を固定"}
-          >
-            <Columns size={10} />
-          </button>
+        <div className="pr-2">
+          <span className="whitespace-normal break-words line-clamp-2 block" title={title}>{children}</span>
         </div>
+        {/* Freeze toggle - small icon at top-right, only visible on hover (or always if frozen) */}
+        <button
+          onClick={() => toggleFrozenColumn(index)}
+          className={cn(
+            "absolute top-0.5 right-3 p-0.5 rounded transition-opacity hover:bg-black/10",
+            isFrozen
+              ? "text-[#007aff] opacity-70 hover:opacity-100"
+              : "text-gray-400 opacity-0 group-hover:opacity-60 hover:!opacity-100"
+          )}
+          style={{ zIndex: 50 }}
+          title={isFrozen ? "固定を解除" : "列を固定"}
+        >
+          <Columns size={8} />
+        </button>
         {/* Resize handle - always visible at right edge */}
         <div
           onMouseDown={handleMouseDownResize(index)}
