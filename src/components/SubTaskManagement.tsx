@@ -211,8 +211,9 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         draggableOpts={{ enableUserSelectHack: false }}
         handle={
           <span
-            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#007aff] bg-gray-200/0 hover:bg-opacity-40 transition-colors z-30"
+            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-[#007aff] bg-gray-200/0 hover:bg-opacity-40 transition-colors z-50"
             onClick={(e) => e.stopPropagation()}
+            style={{ pointerEvents: 'auto' }}
           />
         }
       >
@@ -222,10 +223,11 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
             minWidth: columnWidths[index],
             left: isFrozen ? left : undefined,
             position: isFrozen ? 'sticky' : 'relative',
-            zIndex: isFrozen ? 40 : 10
+            zIndex: isFrozen ? 40 : 10,
+            overflow: 'visible'
           }}
           className={cn(
-            "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group",
+            "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group relative",
             isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
           )}
         >
@@ -234,7 +236,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
             <button
               onClick={() => toggleFrozenColumn(index)}
               className={cn(
-                "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5 flex-shrink-0",
+                "p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/5 flex-shrink-0 relative z-10",
                 isFrozen ? "text-[#007aff] opacity-100" : "text-gray-400"
               )}
               title={isFrozen ? "固定を解除" : "列を固定"}
@@ -395,7 +397,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                           className="flex-shrink-0 p-1 rounded hover:bg-gray-200 transition-colors group"
                                           title="Click to add or edit icon"
                                         >
-                                          {task.icon_data ? (
+                                          {task.icon_data && task.icon_data.trim() ? (
                                             task.icon_data.startsWith('<') ? (
                                               <div
                                                 className="w-5 h-5"
@@ -705,7 +707,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
               </button>
               <button
                 onClick={() => {
-                  handleUpdate(iconModalTask.id, { icon_data: undefined });
+                  handleUpdate(iconModalTask.id, { icon_data: '' });
                   setIconModalTask(null);
                 }}
                 className="flex-1 py-2.5 bg-gray-100 text-[#1d1d1f] rounded-xl font-bold hover:bg-gray-200 transition-colors"
