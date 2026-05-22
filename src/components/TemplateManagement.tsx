@@ -95,7 +95,6 @@ export const TemplateManagement: React.FC = () => {
     '未着手': 'bg-gray-100 text-gray-700',
     '保留': 'bg-yellow-100 text-yellow-700',
     '着手遅れ': 'bg-orange-50 text-orange-600',
-    '着着手遅れ': 'bg-orange-100 text-orange-700',
     '期限遅れ': 'bg-red-200 text-red-800',
   };
 

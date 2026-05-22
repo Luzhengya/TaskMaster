@@ -13,7 +13,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
-import { ParentTask, SubTask, TaskTemplate, TemplateItem, UserSettings } from '../types';
+import { ParentTask, SubTask, TaskTemplate, TemplateItem, UserSettings, DailyReportSnapshot } from '../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -950,6 +950,110 @@ export const taskService = {
       } catch (error) {
         handleFirestoreError(error, OperationType.CREATE, path);
       }
+    }
+  },
+
+  // ============================================================
+  // Daily Report Snapshots
+  // ============================================================
+  async saveDailyReport(snapshot: Omit<DailyReportSnapshot, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+    if (this.isGuest) {
+      // Store in localStorage for guest mode
+      const key = `daily-report-${snapshot.date}`;
+      const stored: DailyReportSnapshot = {
+        ...snapshot,
+        id: snapshot.date,
+        owner_id: 'guest',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      try {
+        localStorage.setItem(key, JSON.stringify(stored));
+      } catch (e) {
+        console.warn('Failed to persist guest daily report:', e);
+      }
+      return stored.id;
+    }
+    if (!auth.currentUser) throw new Error('User not authenticated');
+    const path = 'daily_reports';
+    try {
+      // Try update existing report for the same date first
+      const q = query(
+        collection(db, path),
+        where('owner_id', '==', auth.currentUser.uid),
+        where('date', '==', snapshot.date)
+      );
+      const existing = await getDocs(q);
+      const now = new Date().toISOString();
+      if (!existing.empty) {
+        const docRef = existing.docs[0].ref;
+        await updateDoc(docRef, {
+          ...snapshot,
+          updated_at: now,
+        });
+        return existing.docs[0].id;
+      }
+      const newDoc = await addDoc(collection(db, path), {
+        ...snapshot,
+        owner_id: auth.currentUser.uid,
+        created_at: now,
+        updated_at: now,
+      });
+      return newDoc.id;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+      throw error;
+    }
+  },
+
+  async getDailyReport(date: string): Promise<DailyReportSnapshot | null> {
+    if (this.isGuest) {
+      try {
+        const stored = localStorage.getItem(`daily-report-${date}`);
+        return stored ? JSON.parse(stored) as DailyReportSnapshot : null;
+      } catch {
+        return null;
+      }
+    }
+    if (!auth.currentUser) return null;
+    const path = 'daily_reports';
+    try {
+      const q = query(
+        collection(db, path),
+        where('owner_id', '==', auth.currentUser.uid),
+        where('date', '==', date)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) return null;
+      const doc = snap.docs[0];
+      return { id: doc.id, ...doc.data() } as DailyReportSnapshot;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path, false);
+      return null;
+    }
+  },
+
+  async deleteDailyReport(date: string) {
+    if (this.isGuest) {
+      try {
+        localStorage.removeItem(`daily-report-${date}`);
+      } catch {}
+      return;
+    }
+    if (!auth.currentUser) throw new Error('User not authenticated');
+    const path = 'daily_reports';
+    try {
+      const q = query(
+        collection(db, path),
+        where('owner_id', '==', auth.currentUser.uid),
+        where('date', '==', date)
+      );
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        await deleteDoc(d.ref);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   }
 };

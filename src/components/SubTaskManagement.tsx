@@ -36,9 +36,12 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   const [iconModalTask, setIconModalTask] = useState<SubTask | null>(null);
   const [iconInput, setIconInput] = useState('');
 
-  // Table features state - default: only freeze タスク名 column (index 3)
-  const [frozenColumns, setFrozenColumns] = useState<number[]>([3]);
-  const [columnWidths, setColumnWidths] = useState<Record<number, number>>({
+  // Storage keys for persisting table preferences
+  const STORAGE_KEY_FROZEN = 'subtask-frozen-columns';
+  const STORAGE_KEY_WIDTHS = 'subtask-column-widths';
+
+  // Default column widths
+  const DEFAULT_WIDTHS: Record<number, number> = {
     0: 40,  // Drag
     1: 50,  // Report
     2: 120, // System
@@ -52,11 +55,42 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     10: 80, // Priority
     11: 200,// Remarks
     12: 60  // Actions
+  };
+
+  // Table features state - load from localStorage, default: only freeze タスク名 column (index 3)
+  const [frozenColumns, setFrozenColumns] = useState<number[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_FROZEN);
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [3];
   });
 
+  const [columnWidths, setColumnWidths] = useState<Record<number, number>>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_WIDTHS);
+      if (stored) return { ...DEFAULT_WIDTHS, ...JSON.parse(stored) };
+    } catch {}
+    return DEFAULT_WIDTHS;
+  });
+
+  // Persist frozen columns to localStorage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_FROZEN, JSON.stringify(frozenColumns));
+    } catch {}
+  }, [frozenColumns]);
+
+  // Persist column widths to localStorage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_WIDTHS, JSON.stringify(columnWidths));
+    } catch {}
+  }, [columnWidths]);
+
   const toggleFrozenColumn = (index: number) => {
-    setFrozenColumns(prev => 
-      prev.includes(index) 
+    setFrozenColumns(prev =>
+      prev.includes(index)
         ? prev.filter(i => i !== index)
         : [...prev, index].sort((a, b) => a - b)
     );
@@ -131,9 +165,9 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     if (!task) return;
 
     // Clean up undefined values (Firestore doesn't support undefined)
-    const newUpdates: Partial<SubTask> = {};
+    const newUpdates: Record<string, any> = {};
     for (const [key, value] of Object.entries(updates)) {
-      newUpdates[key as keyof SubTask] = value === undefined ? '' : value as any;
+      newUpdates[key] = value === undefined ? '' : value;
     }
 
     // Auto-calculate deadline if due_date or planned_hours changes
@@ -145,10 +179,23 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
       }
     }
 
-    if ('status' in updates && updates.status === '遅れ') {
-      setDelayModalTask(task);
-      setDelayReason('他の作業の優先度が高くのため');
-      setImpactAssessment('小');
+    // Auto-set warning icon for delayed statuses
+    if ('status' in updates && updates.status) {
+      const newStatus = updates.status;
+      const delayedStatuses: SubTaskStatus[] = ['遅れ', '着手遅れ', '期限遅れ'];
+      if (delayedStatuses.includes(newStatus)) {
+        // Only set warning icon if no icon is already set
+        if (!task.icon_data || !task.icon_data.trim()) {
+          newUpdates.icon_data = '⚠️';
+        }
+
+        // Show delay modal for '遅れ' status
+        if (newStatus === '遅れ') {
+          setDelayModalTask(task);
+          setDelayReason('他の作業の優先度が高くのため');
+          setImpactAssessment('小');
+        }
+      }
     }
 
     console.log('[handleUpdate] Updating task', id, 'with', newUpdates);
@@ -338,7 +385,6 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                   >
                     {subTasks.map((task, index) => {
                       const isOverdue = task.final_deadline && task.final_deadline > parentTask.deadline && task.status !== '済';
-                      const isDelayed = task.status.includes('遅れ');
                       const isCompleted = task.status === '済';
                       
                       return (
@@ -360,19 +406,25 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                 const width = columnWidths[colIdx];
                                 
                                 return (
-                                  <td 
+                                  <td
                                     key={colIdx}
-                                    style={{ 
+                                    style={{
                                       width,
                                       minWidth: width,
                                       maxWidth: width,
                                       left: isFrozen ? left : undefined,
                                       position: isFrozen ? 'sticky' : 'relative',
-                                      zIndex: isFrozen ? 30 : 1
                                     }}
                                     className={cn(
                                       "px-4 py-2 border-b border-gray-50 transition-colors",
-                                      isFrozen && (isCompleted ? "bg-[#f5f5f7]" : isOverdue ? "bg-red-50" : "bg-white group-hover:bg-gray-50"),
+                                      // z-index via class so focus-within can override inline style
+                                      isFrozen ? "z-30" : "z-[1]",
+                                      // Raise above frozen columns (z-30) when a child has focus,
+                                      // so focus rings/outlines aren't hidden by sticky neighbors
+                                      "focus-within:!z-50",
+                                      // Apply background colors to ALL cells (frozen and non-frozen) for consistency
+                                      // Sticky cells need explicit bg, non-sticky cells get same bg to match
+                                      isCompleted ? "bg-[#f5f5f7]" : isOverdue ? "bg-red-50" : "bg-white group-hover:bg-gray-50",
                                       isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]",
                                       isCompleted && !isFrozen && "opacity-60"
                                     )}
@@ -446,7 +498,6 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                           title={task.task_name}
                                           placeholder="タスク名"
                                         />
-                                        {isDelayed && <AlertCircle size={14} className="text-red-500 animate-pulse flex-shrink-0" />}
                                       </div>
                                     )}
                                     {colIdx === 4 && (
@@ -466,7 +517,10 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                         type="date"
                                         value={task.start_date || ''}
                                         onChange={(e) => handleUpdate(task.id, { start_date: e.target.value })}
-                                        className="bg-transparent focus:outline-none text-sm w-full"
+                                        className={cn(
+                                          "bg-transparent focus:outline-none text-sm w-full",
+                                          task.status === '着手遅れ' && "text-orange-600 font-bold bg-orange-50/30"
+                                        )}
                                       />
                                     )}
                                     {colIdx === 6 && (
@@ -474,22 +528,22 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                         type="date"
                                         value={task.due_date || ''}
                                         onChange={(e) => handleUpdate(task.id, { due_date: e.target.value })}
-                                        className="bg-transparent focus:outline-none text-sm w-full"
+                                        className={cn(
+                                          "bg-transparent focus:outline-none text-sm w-full",
+                                          task.status === '遅れ' && "text-red-600 font-bold bg-red-50/30"
+                                        )}
                                       />
                                     )}
                                     {colIdx === 7 && (
-                                      <div className="flex items-center gap-2">
-                                        <input
-                                          type="date"
-                                          value={task.final_deadline}
-                                          onChange={(e) => handleUpdate(task.id, { final_deadline: e.target.value })}
-                                          className={cn(
-                                            "bg-transparent focus:outline-none text-sm w-full",
-                                            isOverdue && "text-red-600 font-bold"
-                                          )}
-                                        />
-                                        {isOverdue && <AlertCircle size={14} className="text-red-500 flex-shrink-0" />}
-                                      </div>
+                                      <input
+                                        type="date"
+                                        value={task.final_deadline}
+                                        onChange={(e) => handleUpdate(task.id, { final_deadline: e.target.value })}
+                                        className={cn(
+                                          "bg-transparent focus:outline-none text-sm w-full",
+                                          (isOverdue || task.status === '期限遅れ') && "text-red-600 font-bold bg-red-50/30"
+                                        )}
+                                      />
                                     )}
                                     {colIdx === 8 && (
                                       <EditableCell
