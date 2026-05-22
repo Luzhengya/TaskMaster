@@ -11,8 +11,7 @@ import {
   ChevronLeft,
   GripVertical,
   CheckSquare,
-  Square,
-  Columns
+  Square
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { clsx, type ClassValue } from 'clsx';
@@ -238,32 +237,28 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
           position: isFrozen ? 'sticky' : 'relative',
           zIndex: isFrozen ? 40 : 10,
         }}
+        onDoubleClick={() => toggleFrozenColumn(index)}
         className={cn(
-          "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group",
+          "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group cursor-pointer select-none",
           isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
         )}
+        title={isFrozen ? "ダブルクリックで固定を解除" : "ダブルクリックで列を固定"}
       >
+        {/* Frozen indicator - small blue dot at top-left when frozen */}
+        {isFrozen && (
+          <span
+            className="absolute top-1.5 left-1.5 w-1.5 h-1.5 rounded-full bg-[#007aff]"
+            style={{ zIndex: 50 }}
+          />
+        )}
         <div className="pr-2">
           <span className="whitespace-normal break-words line-clamp-2 block" title={title}>{children}</span>
         </div>
-        {/* Freeze toggle - small icon at top-right, only visible on hover (or always if frozen) */}
-        <button
-          onClick={() => toggleFrozenColumn(index)}
-          className={cn(
-            "absolute top-0.5 right-3 p-0.5 rounded transition-opacity hover:bg-black/10",
-            isFrozen
-              ? "text-[#007aff] opacity-70 hover:opacity-100"
-              : "text-gray-400 opacity-0 group-hover:opacity-60 hover:!opacity-100"
-          )}
-          style={{ zIndex: 50 }}
-          title={isFrozen ? "固定を解除" : "列を固定"}
-        >
-          <Columns size={8} />
-        </button>
         {/* Resize handle - always visible at right edge */}
         <div
           onMouseDown={handleMouseDownResize(index)}
           onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
           className="absolute top-0 right-0 bottom-0 w-2 cursor-col-resize hover:bg-[#007aff]/50 active:bg-[#007aff] transition-colors"
           style={{ zIndex: 100 }}
           title="ドラッグで列幅を調整"
