@@ -36,8 +36,8 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   const [iconModalTask, setIconModalTask] = useState<SubTask | null>(null);
   const [iconInput, setIconInput] = useState('');
 
-  // Table features state
-  const [frozenColumns, setFrozenColumns] = useState<number[]>([0, 1, 2, 3]); // Default frozen columns
+  // Table features state - default: only freeze タスク名 column (index 3)
+  const [frozenColumns, setFrozenColumns] = useState<number[]>([3]);
   const [columnWidths, setColumnWidths] = useState<Record<number, number>>({
     0: 40,  // Drag
     1: 50,  // Report
@@ -63,7 +63,11 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   };
 
   useEffect(() => {
-    const unsubscribe = taskService.subscribeSubTasks(parentTask.id, setSubTasks);
+    const unsubscribe = taskService.subscribeSubTasks(parentTask.id, (tasks) => {
+      console.log('[subscribeSubTasks] Received', tasks.length, 'tasks. Sample icon_data:',
+        tasks.slice(0, 3).map(t => ({ id: t.id, task_name: t.task_name, icon_data: t.icon_data })));
+      setSubTasks(tasks);
+    });
     return () => unsubscribe();
   }, [parentTask.id]);
 
@@ -237,20 +241,23 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
           position: isFrozen ? 'sticky' : 'relative',
           zIndex: isFrozen ? 40 : 10,
         }}
-        onDoubleClick={() => toggleFrozenColumn(index)}
+        onDoubleClick={() => {
+          // Don't allow freezing the drag handle column (index 0, no header text)
+          if (index === 0) return;
+          toggleFrozenColumn(index);
+        }}
         className={cn(
-          "px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-gray-50 border-b border-gray-100 group cursor-pointer select-none",
+          "px-4 py-3 text-[10px] font-bold uppercase tracking-widest bg-gray-50 border-b border-gray-100 group select-none",
+          index !== 0 && "cursor-pointer",
+          isFrozen ? "text-[#007aff]" : "text-[#86868b]",
           isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]"
         )}
-        title={isFrozen ? "ダブルクリックで固定を解除" : "ダブルクリックで列を固定"}
+        title={
+          index === 0
+            ? undefined
+            : isFrozen ? "ダブルクリックで固定を解除" : "ダブルクリックで列を固定"
+        }
       >
-        {/* Frozen indicator - small blue dot at top-left when frozen */}
-        {isFrozen && (
-          <span
-            className="absolute top-1.5 left-1.5 w-1.5 h-1.5 rounded-full bg-[#007aff]"
-            style={{ zIndex: 50 }}
-          />
-        )}
         <div className="pr-2">
           <span className="whitespace-normal break-words line-clamp-2 block" title={title}>{children}</span>
         </div>

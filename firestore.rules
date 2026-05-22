@@ -45,7 +45,7 @@ service cloud.firestore {
       return data.task_name is string && data.task_name.size() <= 1000 &&
              data.parent_task_id is string &&
              data.owner_id == request.auth.uid &&
-             (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ', '着着手遅れ']) &&
+             (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ']) &&
              (data.priority in ['A', 'B', 'C']) &&
              data.planned_hours is number &&
              data.actual_hours is number &&
@@ -62,15 +62,16 @@ service cloud.firestore {
              (!('week' in data) || data.week is string) &&
              (!('week_number' in data) || data.week_number is number) &&
              (!('flag' in data) || data.flag is number) &&
+             (!('icon_data' in data) || data.icon_data is string) &&
              (!('delay_reason' in data) || data.delay_reason is string) &&
              (!('impact_assessment' in data) || data.impact_assessment in ['小', '中', '大']) &&
              hasOnlyAllowedFields([
-               'parent_task_id', 'system', 'month', 'daily_report_date', 
-               'start_date', 'due_date', 'final_deadline', 'status', 
-               'task_name', 'planned_hours', 'actual_hours', 'priority', 
-               'remarks', 'delay_reason', 'impact_assessment', 'is_in_report', 
-               'order', 'weekday', 'week', 'week_number', 'flag', 'owner_id', 
-               'created_at', 'updated_at'
+               'parent_task_id', 'system', 'month', 'daily_report_date',
+               'start_date', 'due_date', 'final_deadline', 'status',
+               'task_name', 'planned_hours', 'actual_hours', 'priority',
+               'remarks', 'delay_reason', 'impact_assessment', 'is_in_report',
+               'order', 'weekday', 'week', 'week_number', 'flag', 'icon_data',
+               'owner_id', 'created_at', 'updated_at'
              ]);
     }
 
@@ -85,7 +86,7 @@ service cloud.firestore {
       return data.task_name is string && data.task_name.size() <= 1000 &&
              data.template_id is string &&
              data.owner_id == request.auth.uid &&
-             (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ', '着着手遅れ']) &&
+             (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ']) &&
              (data.priority in ['A', 'B', 'C']) &&
              data.planned_hours is number &&
              (!('system' in data) || data.system is string) &&
