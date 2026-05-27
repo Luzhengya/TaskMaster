@@ -45,8 +45,8 @@ service cloud.firestore {
       return data.task_name is string && data.task_name.size() <= 1000 &&
              data.parent_task_id is string &&
              data.owner_id == request.auth.uid &&
-             (data.status in ['遅れ', '済', '進行中', '未着手', '保留', '着手遅れ', '期限遅れ']) &&
-             (data.priority in ['A', 'B', 'C']) &&
+             data.status is string &&
+             data.priority is string &&
              data.planned_hours is number &&
              data.actual_hours is number &&
              (!('system' in data) || data.system is string) &&

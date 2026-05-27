@@ -35,6 +35,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   const [impactAssessment, setImpactAssessment] = useState<'小' | '中' | '大'>('小');
   const [iconModalTask, setIconModalTask] = useState<SubTask | null>(null);
   const [iconInput, setIconInput] = useState('');
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   // Storage keys for persisting table preferences
   const STORAGE_KEY_FROZEN = 'subtask-frozen-columns';
@@ -202,8 +203,16 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     try {
       await taskService.updateSubTask(id, newUpdates);
       console.log('[handleUpdate] Update successful');
-    } catch (err) {
+    } catch (err: any) {
       console.error('[handleUpdate] Update failed:', err);
+      // Extract concise error message
+      let msg = err?.message || String(err);
+      try {
+        const parsed = JSON.parse(msg);
+        msg = parsed.error || msg;
+      } catch {}
+      setUpdateError(`更新に失敗しました: ${msg}`);
+      setTimeout(() => setUpdateError(null), 5000);
     }
   };
 
@@ -355,6 +364,19 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         </div>
       </div>
 
+      {updateError && (
+        <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-start gap-2">
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+          <span className="flex-1 break-all">{updateError}</span>
+          <button
+            onClick={() => setUpdateError(null)}
+            className="text-red-600 hover:text-red-800 text-xs font-bold flex-shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="mac-card overflow-hidden flex flex-col h-[calc(100vh-250px)]">
         <div className="overflow-auto flex-1 relative">
           <DragDropContext onDragEnd={onDragEnd}>
@@ -439,11 +461,12 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                         <button
                                           onClick={() => {
                                             const newIsInReport = !task.is_in_report;
-                                            const today = new Date().toISOString().split('T')[0];
-                                            handleUpdate(task.id, { 
-                                              is_in_report: newIsInReport,
-                                              daily_report_date: newIsInReport && !task.daily_report_date ? today : task.daily_report_date
-                                            });
+                                            const updates: Partial<SubTask> = { is_in_report: newIsInReport };
+                                            // Only set daily_report_date when first checking and no date is set yet
+                                            if (newIsInReport && !task.daily_report_date) {
+                                              updates.daily_report_date = new Date().toISOString().split('T')[0];
+                                            }
+                                            handleUpdate(task.id, updates);
                                           }}
                                           className={cn(
                                             "p-1 rounded transition-colors",

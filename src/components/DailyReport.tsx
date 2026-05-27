@@ -251,7 +251,10 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
         total_actual: stats.actual,
         delayed_count: stats.delayed,
       });
-      setSubmitFeedback('日報を保存しました');
+      // Reload snapshot so the "再提出" button state reflects the save
+      const reloaded = await taskService.getDailyReport(today);
+      setSnapshot(reloaded);
+      setSubmitFeedback(snapshot ? '日報を更新しました' : '日報を保存しました');
       setTimeout(() => setSubmitFeedback(null), 3000);
     } catch (err: any) {
       setSubmitFeedback(`保存失敗: ${err.message || err}`);
@@ -389,10 +392,16 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
               <button
                 onClick={handleSubmit}
                 disabled={isSubmitting}
-                className="flex items-center gap-2 px-5 py-2.5 bg-[#007aff] text-white rounded-xl font-bold hover:bg-[#0062cc] transition-colors disabled:opacity-60 shadow-sm"
+                title={snapshot ? `前回提出: ${new Date(snapshot.updated_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}` : undefined}
+                className={cn(
+                  'flex items-center gap-2 px-5 py-2.5 text-white rounded-xl font-bold transition-colors disabled:opacity-60 shadow-sm',
+                  snapshot
+                    ? 'bg-[#34c759] hover:bg-[#28a745]'
+                    : 'bg-[#007aff] hover:bg-[#0062cc]'
+                )}
               >
                 {isSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
-                <span>日報を提出</span>
+                <span>{snapshot ? '日報再提出' : '日報を提出'}</span>
               </button>
             )}
           </div>
