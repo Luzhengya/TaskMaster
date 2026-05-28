@@ -72,7 +72,7 @@ export interface UserSettings {
   id: string;
   ai_models: any[];
   ui_preferences: {
-    view: 'table' | 'grid';
+    view: 'table' | 'grid' | 'weekly';
     opacity: number;
     theme: 'light' | 'dark';
     font: string;
