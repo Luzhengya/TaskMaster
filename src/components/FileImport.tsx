@@ -139,8 +139,16 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             let completedCount = 0;
             const totalCount = projectRows.length;
 
-            const lastRow = projectRows[projectRows.length - 1];
-            const deadline = parseDate(getRowValue(lastRow, columnMap, 'dueDate'));
+            // Parent due date = the latest 期日 among its subtasks (zero-pad for
+            // chronological string comparison; rows aren't guaranteed to be sorted).
+            const pad = (d: string) =>
+              d.split('-').length === 3
+                ? d.split('-').map((p, i) => p.padStart(i === 0 ? 4 : 2, '0')).join('-')
+                : d;
+            const deadline = projectRows.reduce((max, row) => {
+              const d = parseDate(getRowValue(row, columnMap, 'dueDate'));
+              return d && pad(d) > pad(max) ? d : max;
+            }, '');
 
             for (const row of projectRows) {
               totalPlanned += parseNumber(
