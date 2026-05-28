@@ -451,7 +451,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
                     <span className="text-sm font-bold text-[#1d1d1f] w-10 text-right">{progress}%</span>
                     {parent?.deadline && (
                       <span className="text-xs text-[#86868b] hidden sm:inline">
-                        最終期限 {fmtDate(parent.deadline)}
+                        最終期日 {fmtDate(parent.deadline)}
                       </span>
                     )}
                   </div>

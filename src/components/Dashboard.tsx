@@ -31,6 +31,16 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Zero-pad a YYYY-M-D date string so string comparison matches chronological order.
+// Imported dates aren't zero-padded ("2026-6-9") while <input type="date"> emits "2026-06-09".
+function normalizeDate(d?: string): string {
+  if (!d) return '';
+  const parts = d.split('-');
+  if (parts.length !== 3) return d;
+  const [y, m, day] = parts;
+  return `${y.padStart(4, '0')}-${m.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
 interface DashboardProps {
   parentTasks: ParentTask[];
   onSelectTask: (task: ParentTask) => void;
@@ -234,12 +244,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
     const planned = subTasks.reduce((acc, st) => acc + (st.planned_hours || 0), 0);
     const actual = subTasks.reduce((acc, st) => acc + (st.actual_hours || 0), 0);
 
-    const lastSubTaskDeadline = subTasks.reduce((max, st) => {
-      if (!st.final_deadline) return max;
-      return st.final_deadline > max ? st.final_deadline : max;
+    const maxSubTaskDueDate = subTasks.reduce((max, st) => {
+      const d = normalizeDate(st.due_date);
+      return d > max ? d : max;
     }, '');
 
-    return { progress, planned, actual, hasSubTasks: true, hasDelay, lastSubTaskDeadline };
+    return { progress, planned, actual, hasSubTasks: true, hasDelay, maxSubTaskDueDate };
   };
 
   return (
@@ -382,8 +392,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                     className="divide-y divide-black/5"
                   >
                     {parentTasks.map((task, index) => {
-                      const { progress, planned, actual, hasSubTasks, hasDelay, lastSubTaskDeadline } = getProjectStats(task.id);
-                      const isDeadlineWarning = lastSubTaskDeadline && task.deadline && task.deadline < lastSubTaskDeadline;
+                      const { progress, planned, actual, hasSubTasks, hasDelay, maxSubTaskDueDate } = getProjectStats(task.id);
+                      const isDeadlineWarning = !!maxSubTaskDueDate && !!task.deadline && normalizeDate(task.deadline) < maxSubTaskDueDate;
                       return (
                         <Draggable key={task.id} draggableId={task.id} index={index}>
                           {(provided) => (
@@ -519,8 +529,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                 className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
               >
                 {parentTasks.map((task, index) => {
-                  const { progress, planned, actual, hasSubTasks, hasDelay, lastSubTaskDeadline } = getProjectStats(task.id);
-                  const isDeadlineWarning = lastSubTaskDeadline && task.deadline && task.deadline < lastSubTaskDeadline;
+                  const { progress, planned, actual, hasSubTasks, hasDelay, maxSubTaskDueDate } = getProjectStats(task.id);
+                  const isDeadlineWarning = !!maxSubTaskDueDate && !!task.deadline && normalizeDate(task.deadline) < maxSubTaskDueDate;
                   
                   return (
                     <Draggable key={task.id} draggableId={task.id} index={index}>

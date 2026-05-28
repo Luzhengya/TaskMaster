@@ -21,6 +21,16 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Zero-pad a YYYY-M-D date string so string comparison matches chronological order.
+// Imported dates aren't zero-padded ("2026-6-9") while <input type="date"> emits "2026-06-09".
+function normalizeDate(d?: string): string {
+  if (!d) return '';
+  const parts = d.split('-');
+  if (parts.length !== 3) return d;
+  const [y, m, day] = parts;
+  return `${y.padStart(4, '0')}-${m.padStart(2, '0')}-${day.padStart(2, '0')}`;
+}
+
 interface SubTaskManagementProps {
   parentTask: ParentTask;
   onBack: () => void;
@@ -339,6 +349,15 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     '期限遅れ': 'bg-red-200 text-red-800',
   };
 
+  // Date anomaly: parent's final due date must not be earlier than the latest subtask due date.
+  const maxSubTaskDueDate = subTasks.reduce((max, t) => {
+    const d = normalizeDate(t.due_date);
+    return d > max ? d : max;
+  }, '');
+  const hasDateAnomaly =
+    maxSubTaskDueDate !== '' &&
+    normalizeDate(parentTask.deadline) < maxSubTaskDueDate;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -348,7 +367,15 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
           </button>
           <div>
             <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">{parentTask.name}</h2>
-            <p className="text-[#86868b]">最終期限: {parentTask.deadline}</p>
+            <p className="text-[#86868b]">
+              最終期日: {parentTask.deadline}
+              {hasDateAnomaly && (
+                <span className="ml-2 text-red-600 font-bold inline-flex items-center gap-1 align-middle">
+                  <AlertCircle size={14} />
+                  日付異常（サブタスクの期日 {maxSubTaskDueDate} を下回っています）
+                </span>
+              )}
+            </p>
           </div>
         </div>
         
@@ -405,7 +432,6 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                     className="divide-y divide-gray-50"
                   >
                     {subTasks.map((task, index) => {
-                      const isOverdue = task.final_deadline && task.final_deadline > parentTask.deadline && task.status !== '済';
                       const isCompleted = task.status === '済';
                       
                       return (
@@ -417,7 +443,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                               {...provided.draggableProps}
                               className={cn(
                                 "group transition-colors",
-                                isCompleted ? "bg-[#f5f5f7]" : isOverdue ? "bg-red-50" : "hover:bg-gray-50",
+                                isCompleted ? "bg-[#f5f5f7]" : "hover:bg-gray-50",
                                 highlightTaskId === task.id && "ring-2 ring-[#007aff] ring-inset"
                               )}
                             >
@@ -445,7 +471,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       "focus-within:!z-50",
                                       // Apply background colors to ALL cells (frozen and non-frozen) for consistency
                                       // Sticky cells need explicit bg, non-sticky cells get same bg to match
-                                      isCompleted ? "bg-[#f5f5f7]" : isOverdue ? "bg-red-50" : "bg-white group-hover:bg-gray-50",
+                                      isCompleted ? "bg-[#f5f5f7]" : "bg-white group-hover:bg-gray-50",
                                       isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]",
                                       isCompleted && !isFrozen && "opacity-60"
                                     )}
@@ -563,7 +589,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                         onChange={(e) => handleUpdate(task.id, { final_deadline: e.target.value })}
                                         className={cn(
                                           "bg-transparent focus:outline-none text-sm w-full",
-                                          (isOverdue || task.status === '期限遅れ') && "text-red-600 font-bold bg-red-50/30"
+                                          task.status === '期限遅れ' && "text-red-600 font-bold bg-red-50/30"
                                         )}
                                       />
                                     )}
