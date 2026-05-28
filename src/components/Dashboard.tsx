@@ -176,24 +176,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
     }
   };
 
-  const confirmClearAll = async () => {
-    try {
-      await taskService.clearAllData();
-      setIsClearingAll(false);
-    } catch (err) {
+  const confirmClearAll = () => {
+    setIsClearingAll(false);
+    taskService.clearAllData().catch(err => {
       console.error('Failed to clear data:', err);
-      // We'll show a simple error state instead of alert
-    }
+    });
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!deleteTarget) return;
-    try {
-      await taskService.deleteParentTask(deleteTarget.id);
-      setDeleteTarget(null);
-    } catch (err) {
+    const targetId = deleteTarget.id;
+    setDeleteTarget(null);
+    taskService.deleteParentTask(targetId).catch(err => {
       console.error('Failed to delete project:', err);
-    }
+    });
   };
 
   const handleExport = async () => {

@@ -45,14 +45,13 @@ export const History: React.FC<HistoryProps> = ({ onSelectTask, settings }) => {
     }
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!deleteTarget) return;
-    try {
-      await taskService.deleteParentTask(deleteTarget.id);
-      setDeleteTarget(null);
-    } catch (err) {
+    const targetId = deleteTarget.id;
+    setDeleteTarget(null);
+    taskService.deleteParentTask(targetId).catch(err => {
       console.error('Failed to delete project:', err);
-    }
+    });
   };
 
   const getProjectStats = (parentId: string) => {

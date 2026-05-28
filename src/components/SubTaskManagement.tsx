@@ -238,14 +238,13 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     await Promise.all(updatePromises);
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (!deleteId) return;
-    try {
-      await taskService.deleteSubTask(deleteId);
-      setDeleteId(null);
-    } catch (err) {
+    const targetId = deleteId;
+    setDeleteId(null);
+    taskService.deleteSubTask(targetId).catch(err => {
       console.error('Failed to delete sub-task:', err);
-    }
+    });
   };
 
   const getFrozenLeft = (index: number) => {

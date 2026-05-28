@@ -128,8 +128,10 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             return isNaN(n) ? 0 : n;
           };
 
-          const str = (row: unknown[], field: ImportField, fallback = '') =>
-            String(getRowValue(row, columnMap, field) ?? fallback);
+          const str = (row: unknown[], field: ImportField, fallback = '') => {
+            const value = String(getRowValue(row, columnMap, field) ?? fallback).trim();
+            return value || fallback;
+          };
 
           for (const [projectName, projectRows] of projectGroups.entries()) {
             let totalPlanned = 0;

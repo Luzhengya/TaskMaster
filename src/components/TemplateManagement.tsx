@@ -54,17 +54,16 @@ export const TemplateManagement: React.FC = () => {
     }
   };
 
-  const handleDeleteTemplate = async () => {
+  const handleDeleteTemplate = () => {
     if (!deleteTarget) return;
-    try {
-      await taskService.deleteTaskTemplate(deleteTarget.id);
-      setDeleteTarget(null);
-      if (selectedTemplate?.id === deleteTarget.id) {
-        setSelectedTemplate(null);
-      }
-    } catch (err) {
-      console.error('Failed to delete template:', err);
+    const targetId = deleteTarget.id;
+    setDeleteTarget(null);
+    if (selectedTemplate?.id === targetId) {
+      setSelectedTemplate(null);
     }
+    taskService.deleteTaskTemplate(targetId).catch(err => {
+      console.error('Failed to delete template:', err);
+    });
   };
 
   const handleAddItem = async () => {
