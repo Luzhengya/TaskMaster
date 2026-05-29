@@ -10,17 +10,19 @@ interface LayoutProps {
   onLogout: () => void;
 }
 
+const NAV_ITEMS = [
+  { id: 'dashboard', label: '案件一覧', icon: LayoutDashboard },
+  { id: 'templates', label: 'テンプレ', icon: ListTodo },
+  { id: 'history', label: '履歴', icon: History },
+  { id: 'import', label: 'インポート', icon: FileUp },
+  { id: 'reports', label: '日報', icon: BarChart3 },
+  { id: 'settings', label: '設定', icon: Settings },
+];
+
 export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
 
-  const navItems = [
-    { id: 'dashboard', label: '案件一覧', icon: LayoutDashboard },
-    { id: 'templates', label: 'テンプレ', icon: ListTodo },
-    { id: 'history', label: '履歴', icon: History },
-    { id: 'import', label: 'インポート', icon: FileUp },
-    { id: 'reports', label: '日報', icon: BarChart3 },
-    { id: 'settings', label: '設定', icon: Settings },
-  ];
+  const navItems = NAV_ITEMS;
 
   const SidebarContent = () => (
     <>
@@ -140,19 +142,21 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
       {/* Main Content */}
       <main className="flex-1 overflow-auto bg-white relative flex flex-col">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-white/80 backdrop-blur-md border-b border-black/5 sticky top-0 z-[60]">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-[#007aff] rounded-xl flex items-center justify-center shadow-sm">
-              <ListTodo className="text-white" size={18} />
-            </div>
-            <span className="font-bold text-sm">TaskMaster</span>
-          </div>
-          <button 
+        <header className="lg:hidden flex items-center gap-3 px-4 py-2.5 bg-white/80 backdrop-blur-md border-b border-black/5 sticky top-0 z-[60] h-14">
+          <button
             onClick={() => setIsSidebarOpen(true)}
-            className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+            className="p-2 -ml-2 text-[#1d1d1f] hover:bg-gray-100 rounded-lg"
+            aria-label="メニュー"
           >
-            <Menu size={20} />
+            <Menu size={22} />
           </button>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 bg-[#007aff] rounded-lg flex items-center justify-center">
+              <ListTodo className="text-white" size={16} />
+            </div>
+            <span className="font-bold text-base">{NAV_ITEMS.find(n => n.id === activeTab)?.label || 'TaskMaster'}</span>
+          </div>
+          <div className="flex-1" />
         </header>
 
         <div className="absolute inset-0 bg-[#f5f5f7] -z-10" />

@@ -41,15 +41,15 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">Settings</h2>
-          <p className="text-[#86868b]">Configure AI, UI, and notifications</p>
+          <h2 className="text-2xl lg:text-3xl font-bold tracking-tight text-[#1d1d1f]">Settings</h2>
+          <p className="text-[#86868b] text-xs lg:text-sm">Configure AI, UI, and notifications</p>
         </div>
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="mac-button mac-button-primary flex items-center gap-2"
+          className="mac-button mac-button-primary flex items-center gap-2 self-start sm:self-auto"
         >
           {isSaving ? 'Saving...' : (
             <>
@@ -69,7 +69,7 @@ export const Settings: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* AI Configuration */}
-        <section className="mac-card p-8">
+        <section className="mac-card p-5 lg:p-8">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
               <Cpu size={24} />
@@ -90,7 +90,7 @@ export const Settings: React.FC = () => {
         </section>
 
         {/* UI Preferences */}
-        <section className="mac-card p-8">
+        <section className="mac-card p-5 lg:p-8">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-blue-50 text-[#007aff] rounded-xl">
               <Palette size={24} />
@@ -178,7 +178,7 @@ export const Settings: React.FC = () => {
         </section>
 
         {/* Notifications */}
-        <section className="mac-card p-8 md:col-span-2">
+        <section className="mac-card p-5 lg:p-8 md:col-span-2">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-orange-50 text-orange-600 rounded-xl">
               <Bell size={24} />

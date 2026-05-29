@@ -7,9 +7,20 @@
 }
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-[#f5f5f7] text-[#1d1d1f] antialiased;
     font-feature-settings: "ss01", "ss02", "cv01", "cv02";
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
 
   /* macOS Scrollbar */
@@ -120,5 +131,42 @@ input[type="date"]::-webkit-clear-button {
 input[type="date"] {
   position: relative;
   cursor: pointer;
+}
+
+/* Mobile touch targets - minimum 44px for iOS/Android accessibility */
+@media (pointer: coarse) {
+  button, a, select, input[type="checkbox"], input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  select {
+    min-height: 44px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  /* Inline small buttons (icon-only) keep visual size but expand tap target */
+  .mac-sidebar-item {
+    min-height: 44px;
+  }
+}
+
+/* iOS overscroll rubber-banding fix */
+@supports (-webkit-touch-callout: none) {
+  .overflow-auto, .overflow-x-auto, .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Hide scrollbar on mobile for horizontal scroll areas */
+@media (max-width: 1023px) {
+  .mobile-hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .mobile-hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
 

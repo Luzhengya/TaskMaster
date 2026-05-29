@@ -100,33 +100,35 @@ export const TemplateManagement: React.FC = () => {
   if (selectedTemplate) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setSelectedTemplate(null)} 
-              className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3 lg:gap-4 min-w-0">
+            <button
+              onClick={() => setSelectedTemplate(null)}
+              className="p-2 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
             >
               <ChevronLeft size={24} />
             </button>
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">{selectedTemplate.name}</h2>
-              <p className="text-[#86868b]">作成日: {new Date(selectedTemplate.created_at).toLocaleString()}</p>
+            <div className="min-w-0">
+              <h2 className="text-xl lg:text-3xl font-bold tracking-tight text-[#1d1d1f] truncate">{selectedTemplate.name}</h2>
+              <p className="text-[#86868b] text-xs lg:text-sm">作成日: {new Date(selectedTemplate.created_at).toLocaleString()}</p>
             </div>
           </div>
-          
-          <button
-            onClick={handleAddItem}
-            className="mac-button mac-button-primary flex items-center gap-2"
-          >
-            <Plus size={18} />
-            <span>タスク追加</span>
-          </button>
+
+          <div className="pl-11 lg:pl-0">
+            <button
+              onClick={handleAddItem}
+              className="mac-button mac-button-primary flex items-center gap-2"
+            >
+              <Plus size={18} />
+              <span>タスク追加</span>
+            </button>
+          </div>
         </div>
 
         <div className="mac-card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
+            <table className="w-full text-left border-collapse min-w-[640px]">
+              <thead className="sticky top-[56px] lg:top-0 z-10">
                 <tr className="bg-gray-50 border-b border-gray-100">
                   <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">システム</th>
                   <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">タスク名</th>
@@ -221,14 +223,14 @@ export const TemplateManagement: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">テンプレ管理</h2>
-          <p className="text-[#86868b]">案件作成時に使用するタスクセットの管理</p>
+          <h2 className="text-2xl lg:text-3xl font-bold tracking-tight text-[#1d1d1f]">テンプレ管理</h2>
+          <p className="text-[#86868b] text-xs lg:text-sm">案件作成時に使用するタスクセットの管理</p>
         </div>
         <button
           onClick={() => setIsAddingTemplate(true)}
-          className="mac-button mac-button-primary flex items-center gap-2"
+          className="mac-button mac-button-primary flex items-center gap-2 self-start sm:self-auto"
         >
           <Plus size={18} />
           <span>新規テンプレ</span>
@@ -236,9 +238,9 @@ export const TemplateManagement: React.FC = () => {
       </div>
 
       {isAddingTemplate && (
-        <div className="mac-card p-6 animate-in slide-in-from-top-4 duration-300">
+        <div className="mac-card p-4 lg:p-6 animate-in slide-in-from-top-4 duration-300">
           <h3 className="text-lg font-bold mb-4">新規テンプレ作成</h3>
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <input
               type="text"
               value={newTemplateName}
@@ -247,40 +249,42 @@ export const TemplateManagement: React.FC = () => {
               className="mac-input flex-1"
               autoFocus
             />
-            <button
-              onClick={handleCreateTemplate}
-              className="mac-button mac-button-primary"
-            >
-              作成
-            </button>
-            <button
-              onClick={() => setIsAddingTemplate(false)}
-              className="mac-button mac-button-secondary"
-            >
-              キャンセル
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCreateTemplate}
+                className="mac-button mac-button-primary flex-1 sm:flex-initial"
+              >
+                作成
+              </button>
+              <button
+                onClick={() => setIsAddingTemplate(false)}
+                className="mac-button mac-button-secondary flex-1 sm:flex-initial"
+              >
+                キャンセル
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
         {templates.map((template) => (
           <div
             key={template.id}
-            className="mac-card group hover:shadow-md transition-all cursor-pointer relative"
+            className="mac-card group hover:shadow-md transition-all cursor-pointer active:bg-[#f5f5f7] relative"
             onClick={() => setSelectedTemplate(template)}
           >
-            <div className="p-6">
+            <div className="p-4 lg:p-6">
               <div className="flex justify-between items-start mb-4">
                 <div className="p-2 bg-purple-50 text-purple-600 rounded-xl group-hover:bg-purple-600 group-hover:text-white transition-colors">
                   <Calendar size={20} />
                 </div>
-                <button 
+                <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setDeleteTarget({ id: template.id, name: template.name });
                   }}
-                  className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                  className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
                 >
                   <Trash2 size={18} />
                 </button>

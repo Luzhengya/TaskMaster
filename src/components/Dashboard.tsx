@@ -349,12 +349,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">プロジェクト</h2>
-          <p className="text-[#86868b]">案件と期限の管理</p>
+          <h2 className="text-2xl lg:text-3xl font-bold tracking-tight text-[#1d1d1f]">プロジェクト</h2>
+          <p className="text-[#86868b] text-sm">案件と期限の管理</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex p-1 bg-gray-100 rounded-xl">
             <button
               onClick={() => settings && taskService.updateSettings(settings.id, { ...settings, ui_preferences: { ...settings.ui_preferences, view: 'grid' } })}
@@ -378,30 +378,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
               <FileText size={18} />
             </button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setIsClearingAll(true)}
-              className="mac-button bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 flex items-center gap-2 text-xs sm:text-sm"
-            >
-              <Trash2 size={18} />
-              <span className="hidden xs:inline">全データクリア</span>
-            </button>
-            <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="mac-button mac-button-secondary flex items-center gap-2 text-xs sm:text-sm"
-            >
-              <Download size={18} />
-              <span className="hidden xs:inline">{isExporting ? 'Exporting...' : '週報エクスポート'}</span>
-            </button>
-            <button
-              onClick={() => setIsAdding(true)}
-              className="mac-button mac-button-primary flex items-center gap-2 text-xs sm:text-sm"
-            >
-              <Plus size={18} />
-              <span>新規プロジェクト</span>
-            </button>
-          </div>
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="mac-button mac-button-secondary flex items-center gap-2 text-xs sm:text-sm"
+          >
+            <Download size={18} />
+            <span className="hidden sm:inline">{isExporting ? 'Exporting...' : '週報エクスポート'}</span>
+          </button>
+          <button
+            onClick={() => setIsAdding(true)}
+            className="mac-button mac-button-primary flex items-center gap-2 text-xs sm:text-sm flex-1 sm:flex-initial justify-center"
+          >
+            <Plus size={18} />
+            <span>新規プロジェクト</span>
+          </button>
         </div>
       </div>
 
@@ -472,7 +463,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 px-1">
+      <div className="flex items-center gap-2 px-1 overflow-x-auto pb-1 mobile-hide-scrollbar border-t border-black/5 pt-3 -mx-1 sm:mx-0">
         {FILTER_TABS.map(tab => {
           const active = filter === tab.key;
           const c = TAB_COLORS[tab.key];
@@ -482,7 +473,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
               key={tab.key}
               onClick={() => setFilter(tab.key)}
               className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors",
+                "flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors flex-shrink-0",
                 active ? c.active : "text-[#86868b] hover:text-[#1d1d1f]"
               )}
             >
@@ -495,18 +486,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
             </button>
           );
         })}
+        <div className="flex-shrink-0 ml-auto pl-2 border-l border-black/5 text-xs text-[#86868b] tabular-nums whitespace-nowrap hidden sm:flex items-baseline gap-1">
+          <span className="text-[#1d1d1f] font-bold text-sm">{displayedTasks.length}</span>
+          <span>/</span>
+          <span>全 {parentTasks.length} 件</span>
+        </div>
       </div>
 
       {settings?.ui_preferences.view === 'weekly' ? (
-        <div className="mac-card border border-[#007aff]/40 overflow-x-auto">
+        <div className="mac-card border border-[#007aff]/40 lg:overflow-x-auto">
           {/* Weekly mode bar */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-black/5 bg-gradient-to-r from-[#007aff]/8 to-transparent">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-black/5 bg-gradient-to-r from-[#007aff]/8 to-transparent">
             <div className="flex items-center gap-2 text-[#007aff] font-bold text-sm">
               <FileText size={16} />
               <span>週報モード</span>
               <span className="text-[#86868b] font-medium text-xs ml-1">{weekLabel}</span>
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex gap-1.5 self-end sm:self-auto">
               <button
                 onClick={() => setWeeklyExpanded(new Set(displayedTasks.map(t => t.id)))}
                 className="bg-white border border-black/10 px-2.5 py-1 rounded-md text-xs font-semibold text-[#86868b] hover:text-[#1d1d1f] hover:bg-[#f5f5f7] transition-colors"
@@ -518,9 +514,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
             </div>
           </div>
 
-          {/* Column header */}
+          {/* Column header - hidden on mobile (card layout instead) */}
           <div
-            className="grid items-center gap-3 px-5 h-11 text-[11px] font-bold text-[#86868b] uppercase tracking-wider bg-[#f5f5f7]/80 border-b border-black/5 min-w-[820px]"
+            className="hidden lg:grid items-center gap-3 px-5 h-11 text-[11px] font-bold text-[#86868b] uppercase tracking-wider bg-[#f5f5f7]/80 border-b border-black/5 min-w-[820px]"
             style={{ gridTemplateColumns: '40px minmax(0,1.7fr) 150px 160px minmax(0,1.1fr) 80px' }}
           >
             <div />
@@ -532,7 +528,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
           </div>
 
           {/* Project rows */}
-          <div className="min-w-[820px]">
+          <div className="lg:min-w-[820px]">
             {displayedWithStats.map(({ task, stats }) => {
               const { progress, planned, actual, status } = stats;
               const isOpen = weeklyExpanded.has(task.id);
@@ -540,9 +536,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
               const isDeadlineWarning = !!stats.maxSubTaskDueDate && !!task.deadline && normalizeDate(task.deadline) < stats.maxSubTaskDueDate;
               return (
                 <React.Fragment key={task.id}>
+                  {/* Desktop: grid row */}
                   <div
                     className={cn(
-                      "group grid items-center gap-3 px-5 min-h-[64px] border-b border-black/5 relative transition-colors hover:bg-[#f5f5f7]",
+                      "group hidden lg:grid items-center gap-3 px-5 min-h-[64px] border-b border-black/5 relative transition-colors hover:bg-[#f5f5f7]",
                       isOpen && "bg-[#f5f5f7]",
                       status === 'delayed' && "before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:bg-red-500 before:rounded-r",
                       status === 'start_delayed' && "before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:bg-amber-400 before:rounded-r"
@@ -619,14 +616,67 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                     </div>
                   </div>
 
+                  {/* Mobile: card-style row */}
+                  <div
+                    className={cn(
+                      "lg:hidden p-3.5 border-b border-black/5 relative active:bg-[#f5f5f7] transition-colors",
+                      status === 'delayed' && "border-l-[3px] border-l-red-500",
+                      status === 'start_delayed' && "border-l-[3px] border-l-amber-400"
+                    )}
+                  >
+                    <div className="flex items-start gap-2 mb-2">
+                      <button
+                        onClick={() => toggleWeeklyExpand(task.id)}
+                        className={cn("w-6 h-6 grid place-items-center rounded-md text-[#86868b] flex-shrink-0 mt-1", isOpen && "text-[#007aff]")}
+                      >
+                        <ChevronRight size={14} className={cn("transition-transform", isOpen && "rotate-90")} />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            className={cn("font-bold text-[15px] text-[#1d1d1f] truncate cursor-pointer", isOpen && "text-[#007aff]")}
+                            onClick={() => onSelectTask(task)}
+                          >
+                            {task.name}
+                          </span>
+                          {status === 'delayed' && <DelayBadge tone="danger" />}
+                          {status === 'start_delayed' && <DelayBadge tone="warn" />}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.id, name: task.name }); }}
+                        className="p-1.5 text-gray-300 hover:text-red-500 flex-shrink-0"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-4 ml-8 mb-2">
+                      <div className={cn("flex items-center gap-1.5 text-[13px] tabular-nums", isDeadlineWarning ? "text-red-500 font-bold" : "text-[#86868b]")}>
+                        <Clock size={13} />
+                        <span>{task.deadline || '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[13px] font-medium tabular-nums">
+                        <span className="text-[#1d1d1f] font-semibold">{planned}h</span>
+                        <span className="text-[#86868b] mx-0.5">/</span>
+                        <span className="text-[#007aff] font-semibold">{actual}h</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 ml-8">
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`} style={{ width: `${progress}%` }} />
+                      </div>
+                      <span className="text-xs font-bold text-[#86868b] tabular-nums w-9 text-right">{progress}%</span>
+                    </div>
+                  </div>
+
                   {isOpen && (
-                    <div className="border-b border-black/5 bg-gradient-to-b from-[#007aff]/[0.025] to-transparent px-5 pl-[68px] py-3">
+                    <div className="border-b border-black/5 bg-gradient-to-b from-[#007aff]/[0.025] to-transparent px-3 sm:px-5 lg:pl-[68px] py-3 overflow-x-auto mobile-hide-scrollbar">
                       {subs.length === 0 ? (
                         <div className="py-4 text-center text-[#86868b] text-[13px]">子タスクはありません</div>
                       ) : (
                         <>
                           <div
-                            className="grid items-center gap-3 px-3.5 pb-2 text-[10.5px] font-bold text-[#86868b] uppercase tracking-wider border-b border-black/5"
+                            className="grid items-center gap-3 px-3.5 pb-2 text-[10.5px] font-bold text-[#86868b] uppercase tracking-wider border-b border-black/5 min-w-[620px]"
                             style={{ gridTemplateColumns: '18px minmax(0,1.5fr) 110px 100px 100px 100px 110px' }}
                           >
                             <div />
@@ -643,7 +693,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                               <div
                                 key={t.id}
                                 className={cn(
-                                  "grid items-center gap-3 px-3.5 py-2 my-1 bg-white rounded-lg border border-black/5 text-[12.5px] transition-all hover:border-[#007aff] hover:translate-x-0.5",
+                                  "grid items-center gap-3 px-3.5 py-2 my-1 bg-white rounded-lg border border-black/5 text-[12.5px] transition-all hover:border-[#007aff] hover:translate-x-0.5 min-w-[620px]",
                                   isLate && "border-l-[3px] border-l-red-500"
                                 )}
                                 style={{ gridTemplateColumns: '18px minmax(0,1.5fr) 110px 100px 100px 100px 110px' }}
@@ -697,168 +747,254 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
       ) : (
       <DragDropContext onDragEnd={onDragEnd}>
         {settings?.ui_preferences.view === 'table' ? (
-          <div className="mac-card overflow-x-auto">
-            <table className="w-full text-left border-separate border-spacing-0 min-w-[800px]">
-              <thead className="sticky top-[56px] lg:top-0 z-50">
-                <tr className="mac-table-header border-b border-black/5">
-                  <ResizableTh index={0} />
-                  <ResizableTh index={1} title="プロジェクト名">プロジェクト名</ResizableTh>
-                  <ResizableTh index={2} title="期日">期日</ResizableTh>
-                  <ResizableTh index={3} title="工数 (予定/実績)">工数 (予定/実績)</ResizableTh>
-                  <ResizableTh index={4} title="進捗">進捗</ResizableTh>
-                  <ResizableTh index={5} title="アクション">アクション</ResizableTh>
-                </tr>
-              </thead>
-              <Droppable droppableId="projects-table">
-                {(provided) => (
-                  <tbody 
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                    className="divide-y divide-black/5"
-                  >
-                    {displayedTasks.map((task, index) => {
-                      const { progress, planned, actual, hasSubTasks, maxSubTaskDueDate, status } = getProjectStats(task.id);
-                      const isDeadlineWarning = !!maxSubTaskDueDate && !!task.deadline && normalizeDate(task.deadline) < maxSubTaskDueDate;
-                      const statusMeta = status === 'delayed' || status === 'start_delayed' ? STATUS_META[status] : null;
-                      return (
-                        <Draggable key={task.id} draggableId={task.id} index={index}>
-                          {(provided) => (
-                            <tr
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                              className={cn(
-                                "mac-table-row cursor-pointer group transition-colors",
-                                progress === 100 ? "bg-[#f5f5f7]" : ""
-                              )}
-                              onClick={() => onSelectTask(task)}
-                            >
-                              {[0, 1, 2, 3, 4, 5].map(colIdx => {
-                                const width = columnWidths[colIdx];
-                                
-                                return (
-                                  <td
-                                    key={colIdx}
-                                    style={{
-                                      width,
-                                      minWidth: width,
-                                      maxWidth: width,
-                                      position: 'relative',
-                                      zIndex: 1
-                                    }}
-                                    className={cn(
-                                      "px-6 py-4 border-b border-black/5 transition-colors",
-                                      colIdx === 0 && statusMeta && `border-l-4 ${statusMeta.borderClass}`
-                                    )}
-                                  >
-                                    {colIdx === 0 && (
-                                      <div {...provided.dragHandleProps} className="text-gray-300 hover:text-gray-600">
-                                        <GripVertical size={16} />
-                                      </div>
-                                    )}
-                                    {colIdx === 1 && (
-                                      <div className="flex items-center gap-2 min-w-0">
-                                        <div className={cn(
-                                          "p-1.5 rounded-lg flex-shrink-0",
-                                          statusMeta ? statusMeta.iconBg : "bg-blue-50 text-[#007aff]"
-                                        )}>
-                                          <Calendar size={16} />
+          <>
+            {/* Desktop table view */}
+            <div className="mac-card overflow-x-auto hidden lg:block">
+              <table className="w-full text-left border-separate border-spacing-0 min-w-[800px]">
+                <thead className="sticky top-0 z-50">
+                  <tr className="mac-table-header border-b border-black/5">
+                    <ResizableTh index={0} />
+                    <ResizableTh index={1} title="プロジェクト名">プロジェクト名</ResizableTh>
+                    <ResizableTh index={2} title="期日">期日</ResizableTh>
+                    <ResizableTh index={3} title="工数 (予定/実績)">工数 (予定/実績)</ResizableTh>
+                    <ResizableTh index={4} title="進捗">進捗</ResizableTh>
+                    <ResizableTh index={5} title="アクション">アクション</ResizableTh>
+                  </tr>
+                </thead>
+                <Droppable droppableId="projects-table">
+                  {(provided) => (
+                    <tbody
+                      {...provided.droppableProps}
+                      ref={provided.innerRef}
+                      className="divide-y divide-black/5"
+                    >
+                      {displayedTasks.map((task, index) => {
+                        const { progress, planned, actual, hasSubTasks, maxSubTaskDueDate, status } = getProjectStats(task.id);
+                        const isDeadlineWarning = !!maxSubTaskDueDate && !!task.deadline && normalizeDate(task.deadline) < maxSubTaskDueDate;
+                        const statusMeta = status === 'delayed' || status === 'start_delayed' ? STATUS_META[status] : null;
+                        return (
+                          <Draggable key={task.id} draggableId={task.id} index={index}>
+                            {(provided) => (
+                              <tr
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                className={cn(
+                                  "mac-table-row cursor-pointer group transition-colors",
+                                  progress === 100 ? "bg-[#f5f5f7]" : ""
+                                )}
+                                onClick={() => onSelectTask(task)}
+                              >
+                                {[0, 1, 2, 3, 4, 5].map(colIdx => {
+                                  const width = columnWidths[colIdx];
+
+                                  return (
+                                    <td
+                                      key={colIdx}
+                                      style={{
+                                        width,
+                                        minWidth: width,
+                                        maxWidth: width,
+                                        position: 'relative',
+                                        zIndex: 1
+                                      }}
+                                      className={cn(
+                                        "px-6 py-4 border-b border-black/5 transition-colors",
+                                        colIdx === 0 && statusMeta && `border-l-4 ${statusMeta.borderClass}`
+                                      )}
+                                    >
+                                      {colIdx === 0 && (
+                                        <div {...provided.dragHandleProps} className="text-gray-300 hover:text-gray-600">
+                                          <GripVertical size={16} />
                                         </div>
-                                        <span className="font-bold text-[#1d1d1f] truncate">
-                                          {task.name}
-                                        </span>
-                                        {statusMeta && (
-                                          <span className={cn("flex items-center gap-1.5 flex-shrink-0 text-xs font-semibold", statusMeta.text)}>
-                                            <span className={cn("w-1.5 h-1.5 rounded-full", statusMeta.dot)} />
-                                            {statusMeta.label}
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
-                                    {colIdx === 2 && (
-                                      <div className="flex items-center gap-2">
-                                        <Clock size={14} className={cn("flex-shrink-0", isDeadlineWarning ? "text-red-500" : "")} />
-                                        <input
-                                          type="date"
-                                          value={task.deadline}
-                                          onClick={(e) => e.stopPropagation()}
-                                          onChange={async (e) => {
-                                            e.stopPropagation();
-                                            await taskService.updateParentTask(task.id, { deadline: e.target.value });
-                                          }}
-                                          className={cn(
-                                            "bg-transparent focus:outline-none border-none p-0 text-sm cursor-pointer w-full",
-                                            isDeadlineWarning ? "text-red-500 font-bold" : "text-[#86868b]"
-                                          )}
-                                        />
-                                      </div>
-                                    )}
-                                    {colIdx === 3 && (
-                                      <div className="flex items-center gap-2 text-sm font-medium">
-                                        <span className="text-[#1d1d1f]">{planned}h</span>
-                                        <span className="text-[#86868b]">/</span>
-                                        <span className="text-[#007aff]">{actual}h</span>
-                                      </div>
-                                    )}
-                                    {colIdx === 4 && (
-                                      hasSubTasks ? (
-                                        <div className="flex items-center gap-3 w-full">
-                                          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                            <div 
-                                              className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`}
-                                              style={{ width: `${progress}%` }}
-                                            />
+                                      )}
+                                      {colIdx === 1 && (
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <div className={cn(
+                                            "p-1.5 rounded-lg flex-shrink-0",
+                                            statusMeta ? statusMeta.iconBg : "bg-blue-50 text-[#007aff]"
+                                          )}>
+                                            <Calendar size={16} />
                                           </div>
-                                          <span className="text-[10px] font-bold text-[#1d1d1f] flex-shrink-0">{progress}%</span>
+                                          <span className="font-bold text-[#1d1d1f] truncate">
+                                            {task.name}
+                                          </span>
+                                          {statusMeta && (
+                                            <span className={cn("flex items-center gap-1.5 flex-shrink-0 text-xs font-semibold", statusMeta.text)}>
+                                              <span className={cn("w-1.5 h-1.5 rounded-full", statusMeta.dot)} />
+                                              {statusMeta.label}
+                                            </span>
+                                          )}
                                         </div>
-                                      ) : (
-                                        <span className="text-[10px] text-[#86868b] italic">No tasks</span>
-                                      )
-                                    )}
-                                    {colIdx === 5 && (
-                                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button 
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleHide(task.id);
-                                          }}
-                                          className="p-2 text-gray-300 hover:text-[#007aff] transition-colors"
-                                          title="非表示（履歴へ）"
-                                        >
-                                          <EyeOff size={16} />
-                                        </button>
-                                        <button 
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setDeleteTarget({ id: task.id, name: task.name });
-                                          }}
-                                          className="p-2 text-gray-300 hover:text-red-500 transition-colors"
-                                        >
-                                          <Trash2 size={16} />
-                                        </button>
-                                        <ChevronRight size={16} className="text-gray-300" />
-                                      </div>
-                                    )}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          )}
-                        </Draggable>
-                      );
-                    })}
-                    {provided.placeholder}
-                  </tbody>
-                )}
-              </Droppable>
-            </table>
-            {displayedTasks.length === 0 && !isAdding && (
-              <div className="py-20 text-center">
-                <p className="text-[#86868b] italic">
-                  {filter === 'all' ? 'プロジェクトが見つかりません。新規作成してください。' : '該当するプロジェクトがありません。'}
-                </p>
-              </div>
-            )}
-          </div>
+                                      )}
+                                      {colIdx === 2 && (
+                                        <div className="flex items-center gap-2">
+                                          <Clock size={14} className={cn("flex-shrink-0", isDeadlineWarning ? "text-red-500" : "")} />
+                                          <input
+                                            type="date"
+                                            value={task.deadline}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={async (e) => {
+                                              e.stopPropagation();
+                                              await taskService.updateParentTask(task.id, { deadline: e.target.value });
+                                            }}
+                                            className={cn(
+                                              "bg-transparent focus:outline-none border-none p-0 text-sm cursor-pointer w-full",
+                                              isDeadlineWarning ? "text-red-500 font-bold" : "text-[#86868b]"
+                                            )}
+                                          />
+                                        </div>
+                                      )}
+                                      {colIdx === 3 && (
+                                        <div className="flex items-center gap-2 text-sm font-medium">
+                                          <span className="text-[#1d1d1f]">{planned}h</span>
+                                          <span className="text-[#86868b]">/</span>
+                                          <span className="text-[#007aff]">{actual}h</span>
+                                        </div>
+                                      )}
+                                      {colIdx === 4 && (
+                                        hasSubTasks ? (
+                                          <div className="flex items-center gap-3 w-full">
+                                            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                              <div
+                                                className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`}
+                                                style={{ width: `${progress}%` }}
+                                              />
+                                            </div>
+                                            <span className="text-[10px] font-bold text-[#1d1d1f] flex-shrink-0">{progress}%</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-[10px] text-[#86868b] italic">No tasks</span>
+                                        )
+                                      )}
+                                      {colIdx === 5 && (
+                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleHide(task.id);
+                                            }}
+                                            className="p-2 text-gray-300 hover:text-[#007aff] transition-colors"
+                                            title="非表示（履歴へ）"
+                                          >
+                                            <EyeOff size={16} />
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setDeleteTarget({ id: task.id, name: task.name });
+                                            }}
+                                            className="p-2 text-gray-300 hover:text-red-500 transition-colors"
+                                          >
+                                            <Trash2 size={16} />
+                                          </button>
+                                          <ChevronRight size={16} className="text-gray-300" />
+                                        </div>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </tbody>
+                  )}
+                </Droppable>
+              </table>
+              {displayedTasks.length === 0 && !isAdding && (
+                <div className="py-20 text-center">
+                  <p className="text-[#86868b] italic">
+                    {filter === 'all' ? 'プロジェクトが見つかりません。新規作成してください。' : '該当するプロジェクトがありません。'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Mobile card view (replaces table on small screens) */}
+            <div className="flex flex-col gap-2.5 lg:hidden">
+              {displayedTasks.map((task) => {
+                const { progress, planned, actual, hasSubTasks, maxSubTaskDueDate, status } = getProjectStats(task.id);
+                const isDeadlineWarning = !!maxSubTaskDueDate && !!task.deadline && normalizeDate(task.deadline) < maxSubTaskDueDate;
+                const statusMeta = status === 'delayed' || status === 'start_delayed' ? STATUS_META[status] : null;
+                return (
+                  <div
+                    key={task.id}
+                    className={cn(
+                      "bg-white border border-black/5 rounded-xl shadow-sm p-3.5 cursor-pointer active:bg-[#f5f5f7] transition-colors relative",
+                      statusMeta && "border-l-[3px]",
+                      status === 'delayed' && "border-l-red-500",
+                      status === 'start_delayed' && "border-l-amber-400"
+                    )}
+                    onClick={() => onSelectTask(task)}
+                  >
+                    {/* Row 1: Name + actions */}
+                    <div className="flex items-start gap-2.5 mb-2.5">
+                      <div className={cn(
+                        "w-8 h-8 grid place-items-center rounded-[9px] flex-shrink-0",
+                        statusMeta ? statusMeta.iconBg : "bg-blue-50 text-[#007aff]"
+                      )}>
+                        <Calendar size={16} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-[15px] text-[#1d1d1f] truncate">{task.name}</span>
+                          {statusMeta && <DelayBadge tone={status === 'start_delayed' ? 'warn' : 'danger'} />}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-0.5 flex-shrink-0">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleHide(task.id); }}
+                          className="p-1.5 text-gray-300 hover:text-[#007aff]"
+                          title="非表示"
+                        >
+                          <EyeOff size={16} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.id, name: task.name }); }}
+                          className="p-1.5 text-gray-300 hover:text-red-500"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Due + Hours */}
+                    <div className="flex items-center justify-between gap-4 mb-2.5">
+                      <div className={cn("flex items-center gap-1.5 text-[13px] tabular-nums", isDeadlineWarning ? "text-red-500 font-bold" : "text-[#86868b]")}>
+                        <Clock size={13} />
+                        <span>{task.deadline || '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[13px] font-medium tabular-nums">
+                        <span className="text-[#1d1d1f] font-semibold">{planned}h</span>
+                        <span className="text-[#86868b] mx-0.5">/</span>
+                        <span className="text-[#007aff] font-semibold">{actual}h</span>
+                      </div>
+                    </div>
+
+                    {/* Row 3: Progress bar */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-[#86868b] tabular-nums w-9 text-right">{progress}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {displayedTasks.length === 0 && !isAdding && (
+                <div className="py-20 text-center">
+                  <p className="text-[#86868b] italic">
+                    {filter === 'all' ? 'プロジェクトが見つかりません。新規作成してください。' : '該当するプロジェクトがありません。'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </>
         ) : (
           <Droppable droppableId="projects-grid" direction="horizontal">
             {(provided) => (

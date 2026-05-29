@@ -336,11 +336,11 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <div className="text-sm text-[#86868b] mb-2">システム / 日報</div>
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="text-sm text-[#86868b] mb-2 hidden lg:block">システム / 日報</div>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-4xl font-bold tracking-tight text-[#1d1d1f]">日報</h2>
-            <div className="text-sm text-[#86868b] mt-2 flex items-center gap-2 flex-wrap">
+            <h2 className="text-2xl lg:text-4xl font-bold tracking-tight text-[#1d1d1f]">日報</h2>
+            <div className="text-xs lg:text-sm text-[#86868b] mt-2 flex items-center gap-2 flex-wrap">
               <span className="font-medium">{isHistoryMode ? '対象日' : '本日'}</span>
               <input
                 type="date"
@@ -394,7 +394,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
                 disabled={isSubmitting}
                 title={snapshot ? `前回提出: ${new Date(snapshot.updated_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}` : undefined}
                 className={cn(
-                  'flex items-center gap-2 px-5 py-2.5 text-white rounded-xl font-bold transition-colors disabled:opacity-60 shadow-sm',
+                  'flex items-center gap-2 px-4 lg:px-5 py-2.5 text-white rounded-xl font-bold transition-colors disabled:opacity-60 shadow-sm text-sm',
                   snapshot
                     ? 'bg-[#34c759] hover:bg-[#28a745]'
                     : 'bg-[#007aff] hover:bg-[#0062cc]'
@@ -414,7 +414,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 lg:gap-4">
         <StatCard label="集計タスク" value={`${stats.total} 件`} accent="text-[#007aff]" />
         <StatCard label="予定工数" value={`${stats.planned} h`} accent="text-[#1d1d1f]" />
         <StatCard label="実績工数" value={`${stats.actual} h`} accent="text-[#007aff]" />
@@ -431,18 +431,19 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
             return (
               <div key={pid} className="mac-card">
                 {/* Parent header */}
-                <div className="flex items-center gap-4 px-5 py-4 border-b border-gray-100 flex-wrap">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-                    <Calendar size={18} className="text-[#007aff]" />
-                  </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 lg:px-5 py-3 lg:py-4 border-b border-gray-100">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <h3 className="font-bold text-lg text-[#1d1d1f] truncate">{parent?.name || '(unknown project)'}</h3>
-                    <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-[#007aff] rounded-md font-bold">
+                    <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                      <Calendar size={16} className="text-[#007aff] lg:hidden" />
+                      <Calendar size={18} className="text-[#007aff] hidden lg:block" />
+                    </div>
+                    <h3 className="font-bold text-sm lg:text-lg text-[#1d1d1f] truncate">{parent?.name || '(unknown project)'}</h3>
+                    <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-[#007aff] rounded-md font-bold flex-shrink-0">
                       {tasks.length} 件
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <div className="w-32 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="flex items-center gap-3 flex-shrink-0 pl-11 sm:pl-0">
+                    <div className="w-24 lg:w-32 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-[#007aff] rounded-full transition-all"
                         style={{ width: `${Math.min(100, progress)}%` }}
@@ -465,7 +466,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
                       <div className={cn('w-1 flex-shrink-0', statusBarColor[t.status])} />
 
                       {/* Checkbox */}
-                      <div className="flex items-center px-4">
+                      <div className="flex items-center px-2.5 lg:px-4">
                         <button
                           onClick={() => handleToggleReport(t)}
                           disabled={isHistoryMode}
@@ -483,12 +484,12 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
                       </div>
 
                       {/* Task content */}
-                      <div className="flex-1 min-w-0 py-3 pr-4">
-                        <div className="flex items-center gap-3 flex-wrap mb-1">
+                      <div className="flex-1 min-w-0 py-2.5 lg:py-3 pr-3 lg:pr-4">
+                        <div className="flex items-center gap-2 lg:gap-3 flex-wrap mb-1">
                           <TaskIcon iconData={t.icon_data} />
                           <button
                             onClick={() => onJumpToTask(t)}
-                            className="font-bold text-sm text-[#1d1d1f] hover:text-[#007aff] transition-colors text-left truncate"
+                            className="font-bold text-xs lg:text-sm text-[#1d1d1f] hover:text-[#007aff] transition-colors text-left truncate"
                           >
                             {t.task_name}
                           </button>
@@ -507,8 +508,15 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
                             ))}
                           </select>
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-[#86868b] flex-wrap">
+                        <div className="flex items-center gap-2 lg:gap-4 text-[10px] lg:text-xs text-[#86868b] flex-wrap">
                           <span>
+                            期日{' '}
+                            <span className={cn('font-medium', t.status === '遅れ' && 'text-red-600 font-bold')}>
+                              {fmtDate(t.due_date)}
+                            </span>
+                          </span>
+                          <span className="text-gray-300 hidden sm:inline">·</span>
+                          <span className="hidden sm:inline">
                             開始日{' '}
                             <span className={cn('font-medium', t.status === '着手遅れ' && 'text-orange-600 font-bold')}>
                               {fmtDate(t.start_date)}
@@ -516,23 +524,23 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
                           </span>
                           <span className="text-gray-300">·</span>
                           <span>
-                            期日{' '}
-                            <span className={cn('font-medium', t.status === '遅れ' && 'text-red-600 font-bold')}>
-                              {fmtDate(t.due_date)}
-                            </span>
-                          </span>
-                          <span className="text-gray-300">·</span>
-                          <span>
-                            期限{' '}
+                            <span className="hidden sm:inline">期限 </span>
                             <span className={cn('font-medium', t.status === '期限遅れ' && 'text-red-600 font-bold')}>
                               {fmtDate(t.final_deadline)}
                             </span>
                           </span>
+                          {/* Inline hours on mobile */}
+                          <span className="text-gray-300 sm:hidden">·</span>
+                          <span className="sm:hidden">
+                            <span className="font-medium text-[#1d1d1f]">{t.planned_hours}h</span>
+                            <span className="mx-0.5">/</span>
+                            <span className="font-medium text-[#007aff]">{t.actual_hours}h</span>
+                          </span>
                         </div>
                       </div>
 
-                      {/* Right-side hours */}
-                      <div className="flex flex-col items-end justify-center px-4 py-3 text-xs flex-shrink-0">
+                      {/* Right-side hours (desktop only) */}
+                      <div className="hidden sm:flex flex-col items-end justify-center px-4 py-3 text-xs flex-shrink-0">
                         <div className="flex items-center gap-2">
                           <span className="text-[#86868b]">予定</span>
                           <span className="font-bold text-[#1d1d1f] w-8 text-right">{t.planned_hours}h</span>
@@ -562,7 +570,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
       )}
 
       {/* Notes */}
-      <div className="mac-card p-5">
+      <div className="mac-card p-4 lg:p-5">
         <label className="block text-sm font-bold text-[#1d1d1f] mb-3">
           {isHistoryMode ? `${fmtDate(selectedDate)} のメモ` : '本日のメモ'}
         </label>
@@ -582,7 +590,7 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
       </div>
 
       {/* AI Summary */}
-      <div className="bg-[#007aff] text-white rounded-[20px] p-6 shadow-lg relative overflow-hidden">
+      <div className="bg-[#007aff] text-white rounded-2xl lg:rounded-[20px] p-4 lg:p-6 shadow-lg relative overflow-hidden">
         <div className="relative z-10">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -644,8 +652,8 @@ export const DailyReport: React.FC<DailyReportProps> = ({ onJumpToTask }) => {
 
 // Stat card sub-component
 const StatCard: React.FC<{ label: string; value: string; accent: string }> = ({ label, value, accent }) => (
-  <div className="mac-card p-4">
-    <div className="text-xs text-[#86868b] mb-2">{label}</div>
-    <div className={cn('text-2xl font-bold', accent)}>{value}</div>
+  <div className="mac-card p-3 lg:p-4">
+    <div className="text-[10px] lg:text-xs text-[#86868b] mb-1 lg:mb-2">{label}</div>
+    <div className={cn('text-xl lg:text-2xl font-bold', accent)}>{value}</div>
   </div>
 );

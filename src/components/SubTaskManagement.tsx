@@ -360,26 +360,27 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3 lg:gap-4 min-w-0">
+          <button onClick={onBack} className="p-2 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0">
             <ChevronLeft size={24} />
           </button>
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">{parentTask.name}</h2>
-            <p className="text-[#86868b]">
+          <div className="min-w-0">
+            <h2 className="text-xl lg:text-3xl font-bold tracking-tight text-[#1d1d1f] truncate">{parentTask.name}</h2>
+            <p className="text-[#86868b] text-xs lg:text-sm">
               最終期日: {parentTask.deadline}
               {hasDateAnomaly && (
                 <span className="ml-2 text-red-600 font-bold inline-flex items-center gap-1 align-middle">
                   <AlertCircle size={14} />
-                  日付異常（サブタスクの期日 {maxSubTaskDueDate} を下回っています）
+                  <span className="hidden sm:inline">日付異常（サブタスクの期日 {maxSubTaskDueDate} を下回っています）</span>
+                  <span className="sm:hidden">日付異常</span>
                 </span>
               )}
             </p>
           </div>
         </div>
-        
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+
+        <div className="flex items-center gap-3 pl-11 lg:pl-0">
           <button
             onClick={handleAddRow}
             className="mac-button mac-button-secondary flex items-center gap-2"
@@ -403,7 +404,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         </div>
       )}
 
-      <div className="mac-card overflow-hidden flex flex-col h-[calc(100vh-250px)]">
+      <div className="mac-card overflow-hidden flex flex-col h-[calc(100vh-220px)] lg:h-[calc(100vh-250px)]">
         <div className="overflow-auto flex-1 relative">
           <DragDropContext onDragEnd={onDragEnd}>
             <table className="w-full text-left border-separate border-spacing-0">

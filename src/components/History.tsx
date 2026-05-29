@@ -71,25 +71,25 @@ export const History: React.FC<HistoryProps> = ({ onSelectTask, settings }) => {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">履歴</h2>
-          <p className="text-[#86868b]">非表示にした過去の案件一覧</p>
+          <h2 className="text-2xl lg:text-3xl font-bold tracking-tight text-[#1d1d1f]">履歴</h2>
+          <p className="text-[#86868b] text-xs lg:text-sm">非表示にした過去の案件一覧</p>
         </div>
         <div className="p-2 bg-gray-100 text-gray-600 rounded-xl">
           <HistoryIcon size={24} />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
         {parentTasks.map((task) => {
           const stats = getProjectStats(task.id);
-          
+
           return (
-            <div 
-              key={task.id} 
-              className="mac-card group hover:shadow-md transition-all cursor-pointer relative"
+            <div
+              key={task.id}
+              className="mac-card group hover:shadow-md transition-all cursor-pointer active:bg-[#f5f5f7] relative"
               onClick={() => onSelectTask(task)}
             >
-              <div className="p-6">
+              <div className="p-4 lg:p-6">
                 <div className="flex justify-between items-start mb-4">
                   <div className={cn(
                     "p-2 rounded-xl transition-colors",
@@ -97,8 +97,8 @@ export const History: React.FC<HistoryProps> = ({ onSelectTask, settings }) => {
                   )}>
                     <Calendar size={20} />
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
+                  <div className="flex gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleRestore(task.id);
@@ -108,7 +108,7 @@ export const History: React.FC<HistoryProps> = ({ onSelectTask, settings }) => {
                     >
                       <Eye size={18} />
                     </button>
-                    <button 
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setDeleteTarget({ id: task.id, name: task.name });

@@ -243,7 +243,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
     <div className="w-full space-y-4">
       <div
         {...getRootProps()}
-        className={`relative border-2 border-dashed rounded-3xl p-12 transition-all duration-300 flex flex-col items-center justify-center cursor-pointer ${
+        className={`relative border-2 border-dashed rounded-2xl lg:rounded-3xl p-6 lg:p-12 transition-all duration-300 flex flex-col items-center justify-center cursor-pointer ${
           isDragActive
             ? 'border-[#007aff] bg-[#007aff]/5'
             : 'border-black/10 hover:border-[#007aff]/50 hover:bg-black/[0.02]'
