@@ -8,9 +8,14 @@ import {
   GoogleAuthProvider, 
   OAuthProvider, 
   signOut,
-  signInAnonymously 
+  signInAnonymously,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification
 } from 'firebase/auth';
 import { Layout } from './components/Layout';
+import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { SubTaskManagement } from './components/SubTaskManagement';
 import { TemplateManagement } from './components/TemplateManagement';
@@ -21,7 +26,31 @@ import { Settings } from './components/Settings';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { taskService } from './services/taskService';
 import { ParentTask, UserSettings } from './types';
-import { LogIn, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+
+/** Map Firebase auth error codes to Japanese messages shown inline on the login form. */
+function emailAuthErrorMessage(code: string): string {
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'メールアドレスまたはパスワードが正しくありません。';
+    case 'auth/email-already-in-use':
+      return 'このメールアドレスは既に使用されています。';
+    case 'auth/weak-password':
+      return 'パスワードが弱すぎます。8文字以上で設定してください。';
+    case 'auth/invalid-email':
+      return 'メールアドレスの形式が正しくありません。';
+    case 'auth/too-many-requests':
+      return '試行回数が多すぎます。しばらく時間をおいてから再度お試しください。';
+    case 'auth/operation-not-allowed':
+      return 'ID/パスワードによるサインインが有効化されていません。管理者にお問い合わせください。';
+    case 'auth/network-request-failed':
+      return 'ネットワーク接続に失敗しました。接続を確認してください。';
+    default:
+      return 'エラーが発生しました。しばらくしてから再度お試しください。';
+  }
+}
 
 function createGoogleAuthProvider(): GoogleAuthProvider {
   const provider = new GoogleAuthProvider();
@@ -223,6 +252,67 @@ export default function App() {
     }
   };
 
+  const handleEmailSignIn = async (email: string, password: string) => {
+    await waitForAuthRedirectResult();
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      console.log('Email/password sign-in successful');
+    } catch (error: any) {
+      console.error('Email sign-in failed:', error);
+      throw new Error(emailAuthErrorMessage(error?.code));
+    }
+  };
+
+  const handleEmailSignUp = async (email: string, password: string) => {
+    await waitForAuthRedirectResult();
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      console.log('Account created successfully');
+      // Fire a verification email. Doubles as a diagnostic: if this never arrives,
+      // the project's email-sending channel is misconfigured (not the reset logic).
+      try {
+        await sendEmailVerification(cred.user);
+        console.log('Verification email requested for', email);
+      } catch (verifyErr) {
+        console.warn('Could not send verification email:', verifyErr);
+      }
+    } catch (error: any) {
+      console.error('Account creation failed:', error);
+      throw new Error(emailAuthErrorMessage(error?.code));
+    }
+  };
+
+  const handlePasswordReset = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error: any) {
+      console.error('Password reset failed:', error);
+      throw new Error(emailAuthErrorMessage(error?.code));
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    setIsGuestLoading(true);
+    console.log('Attempting guest login...');
+    try {
+      // Try Firebase Anonymous Auth first
+      await signInAnonymously(auth);
+      setIsGuest(true);
+      taskService.isGuest = true;
+      console.log('Firebase anonymous login successful');
+    } catch (error: any) {
+      // Silent fallback for expected admin-restricted-operation (Anonymous Auth disabled)
+      if (error.code !== 'auth/admin-restricted-operation') {
+        console.warn('Firebase anonymous login failed, falling back to local guest mode:', error);
+      }
+      taskService.isGuest = true;
+      setIsGuest(true);
+      console.log('Local guest mode activated');
+    } finally {
+      setIsGuestLoading(false);
+    }
+  };
+
   console.log('App Render:', { isAuthReady, user: !!user, isGuest });
 
   if (!isAuthReady) {
@@ -239,96 +329,18 @@ export default function App() {
   if (!user && !isGuest) {
     console.log('Rendering Login Screen');
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F5F5F7] p-4">
-        <div className="max-w-md w-full mac-card p-12 text-center">
-          <div className="w-20 h-20 bg-[#F5F5F7] rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner">
-            <LogIn size={40} className="text-[#007aff]" />
-          </div>
-          <h1 className="text-4xl font-bold text-[#1d1d1f] mb-4 tracking-tight">TaskMaster</h1>
-          <p className="text-[#86868b] mb-10 leading-relaxed text-sm">
-            Your personal productivity hub. Manage tasks, import reports, and get AI-powered summaries
-          </p>
-          <div className="space-y-3">
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={!isAuthReady || isLoggingIn || isGuestLoading}
-              className={`w-full py-4 bg-white text-[#1d1d1f] border border-black/10 rounded-2xl font-bold shadow-sm hover:bg-gray-50 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-3 ${
-                isLoggingIn ? 'opacity-50 cursor-not-allowed' : isGuestLoading ? 'cursor-wait' : ''
-              }`}
-            >
-              {isLoggingIn ? (
-                <Loader2 className="animate-spin" size={20} />
-              ) : (
-                <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-              )}
-              {isLoggingIn ? 'Signing in...' : 'Sign in with Google'}
-            </button>
-            <button
-              type="button"
-              onClick={handleMicrosoftLogin}
-              disabled={!MICROSOFT_SIGN_IN_ENABLED || isLoggingIn || isGuestLoading}
-              title={
-                MICROSOFT_SIGN_IN_ENABLED
-                  ? undefined
-                  : 'Microsoft sign-in is temporarily unavailable'
-              }
-              className={`w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all ${
-                MICROSOFT_SIGN_IN_ENABLED
-                  ? 'bg-[#2f2f2f] text-white shadow-lg hover:bg-black hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed'
-                  : 'bg-[#2f2f2f]/45 text-white/65 cursor-not-allowed border border-black/10'
-              }`}
-            >
-              {MICROSOFT_SIGN_IN_ENABLED && isLoggingIn ? (
-                <Loader2 className="animate-spin" size={20} />
-              ) : (
-                <img src="https://www.microsoft.com/favicon.ico" className="w-5 h-5 opacity-60" alt="" />
-              )}
-              {MICROSOFT_SIGN_IN_ENABLED && isLoggingIn
-                ? 'Signing in...'
-                : 'Sign in with Microsoft'}
-            </button>
-          </div>
-          
-          <div className="mt-8 pt-8 border-t border-black/5 space-y-4">
-            <button 
-              type="button"
-              onClick={async () => {
-                setIsGuestLoading(true);
-                console.log('Attempting guest login...');
-                try {
-                  // Try Firebase Anonymous Auth first
-                  await signInAnonymously(auth);
-                  setIsGuest(true);
-                  taskService.isGuest = true;
-                  console.log('Firebase anonymous login successful');
-                } catch (error: any) {
-                  // Silent fallback for expected admin-restricted-operation (Anonymous Auth disabled)
-                  if (error.code !== 'auth/admin-restricted-operation') {
-                    console.warn('Firebase anonymous login failed, falling back to local guest mode:', error);
-                  }
-                  
-                  taskService.isGuest = true;
-                  setIsGuest(true);
-                  console.log('Local guest mode activated');
-                } finally {
-                  setIsGuestLoading(false);
-                }
-              }}
-              disabled={isGuestLoading || isLoggingIn}
-              className="w-full py-3 bg-gray-100 text-[#1d1d1f] rounded-2xl font-bold hover:bg-gray-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isGuestLoading ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : null}
-              {isGuestLoading ? 'Starting guest mode...' : 'Try as Guest'}
-            </button>
-            <p className="text-[10px] text-[#86868b]">
-              Guest mode saves data in your browser's local storage.
-            </p>
-          </div>
-        </div>
-      </div>
+      <Login
+        isAuthReady={isAuthReady}
+        isLoggingIn={isLoggingIn}
+        isGuestLoading={isGuestLoading}
+        microsoftEnabled={MICROSOFT_SIGN_IN_ENABLED}
+        onGoogleLogin={handleLogin}
+        onMicrosoftLogin={handleMicrosoftLogin}
+        onGuestLogin={handleGuestLogin}
+        onEmailSignIn={handleEmailSignIn}
+        onEmailSignUp={handleEmailSignUp}
+        onPasswordReset={handlePasswordReset}
+      />
     );
   }
 
