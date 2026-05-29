@@ -9,9 +9,8 @@ import {
   Trash2, 
   Download, 
   Layers, 
-  CheckCircle2, 
-  AlertCircle, 
-  LayoutGrid, 
+  CheckCircle2,
+  LayoutGrid,
   List, 
   BookTemplate,
   GripVertical,
@@ -45,6 +44,31 @@ function normalizeDate(d?: string): string {
 type ProjectStatus = 'completed' | 'delayed' | 'start_delayed' | 'in_progress' | 'not_started';
 type ProjectFilter = 'all' | 'delayed' | 'start_delayed' | 'in_progress' | 'completed';
 
+// Dot + label delay badge (matches reference project's "dot" bubble style).
+const DelayBadge: React.FC<{ tone: 'danger' | 'warn' }> = ({ tone }) => {
+  const cfg = tone === 'warn'
+    ? { text: '着手遅れ', color: 'text-amber-600', dot: 'bg-amber-500', ring: 'ring-amber-500/15' }
+    : { text: '遅延あり', color: 'text-red-600', dot: 'bg-red-500', ring: 'ring-red-500/15' };
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 text-[11.5px] font-semibold whitespace-nowrap', cfg.color)}>
+      <span className={cn('w-1.5 h-1.5 rounded-full ring-[3px]', cfg.dot, cfg.ring)} />
+      {cfg.text}
+    </span>
+  );
+};
+
+// Subtask status pill colors (kept in sync with SubTaskManagement.tsx).
+const SUBTASK_STATUS_PILL: Record<string, string> = {
+  '遅れ': 'bg-red-100 text-red-700',
+  '済': 'bg-gray-100 text-gray-600',
+  '進行中': 'bg-blue-100 text-blue-700',
+  '未着手': 'bg-gray-100 text-gray-700',
+  '保留': 'bg-yellow-100 text-yellow-700',
+  '着手遅れ': 'bg-orange-50 text-orange-600',
+  '期限遅れ': 'bg-red-200 text-red-800',
+};
+const DELAYED_STATUSES = new Set(['遅れ', '期限遅れ', '着手遅れ']);
+
 interface DashboardProps {
   parentTasks: ParentTask[];
   onSelectTask: (task: ParentTask) => void;
@@ -73,6 +97,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
   const [deleteTarget, setDeleteTarget] = useState<{ id: string, name: string } | null>(null);
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [filter, setFilter] = useState<ProjectFilter>('all');
+  const [weeklyExpanded, setWeeklyExpanded] = useState<Set<string>>(new Set());
+
+  const isWeekly = settings?.ui_preferences.view === 'weekly';
+  // In weekly mode, expand all projects by default when entering the view.
+  useEffect(() => {
+    if (isWeekly) setWeeklyExpanded(new Set(parentTasks.map(p => p.id)));
+    else setWeeklyExpanded(new Set());
+  }, [isWeekly]);
+  const toggleWeeklyExpand = (id: string) => {
+    setWeeklyExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Table Enhancements State
   const [columnWidths, setColumnWidths] = useState<Record<number, number>>({
@@ -273,14 +313,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
     start_delayed: { label: '着手遅れ', dot: 'bg-amber-400', text: 'text-amber-600', borderClass: 'border-l-amber-400', iconBg: 'bg-amber-50 text-amber-600' },
   };
 
-  const PROJECT_STATUS_META: Record<ProjectStatus, { label: string; dot: string; text: string; borderClass: string }> = {
-    delayed:       { label: '遅延あり', dot: 'bg-red-500',   text: 'text-red-600',   borderClass: 'border-l-red-500' },
-    start_delayed: { label: '着手遅れ', dot: 'bg-amber-400', text: 'text-amber-600', borderClass: 'border-l-amber-400' },
-    in_progress:   { label: '進行中',   dot: 'bg-[#007aff]', text: 'text-[#007aff]', borderClass: 'border-l-[#007aff]' },
-    not_started:   { label: '未着手',   dot: 'bg-gray-300',  text: 'text-gray-500',  borderClass: 'border-l-gray-300' },
-    completed:     { label: '完了',     dot: 'bg-green-500', text: 'text-green-600', borderClass: 'border-l-green-500' },
-  };
-
   const tasksWithStats = parentTasks.map(task => ({ task, stats: getProjectStats(task.id) }));
   const counts = {
     delayed: tasksWithStats.filter(t => t.stats.status === 'delayed').length,
@@ -308,16 +340,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
     completed:     { active: 'bg-green-500 text-white', countColor: 'text-green-600' },
   };
 
-  // Weekly report mode: group the (filtered) projects by status for a status-report layout.
+  // Weekly report mode: an expandable table where each project row reveals its subtasks.
   const displayedWithStats = displayedTasks.map(task => ({ task, stats: getProjectStats(task.id) }));
-  const WEEKLY_GROUP_ORDER: ProjectStatus[] = ['delayed', 'start_delayed', 'in_progress', 'not_started', 'completed'];
-  const weeklyGroups = WEEKLY_GROUP_ORDER
-    .map(status => ({ status, items: displayedWithStats.filter(t => t.stats.status === status) }))
-    .filter(g => g.items.length > 0);
   const now = new Date();
   const weekLabel = `${now.getFullYear()}年${now.getMonth() + 1}月 第${Math.ceil(now.getDate() / 7)}週`;
-  const getDelayedSubTasks = (parentId: string) =>
-    allSubTasks.filter(st => st.parent_task_id === parentId && (st.status === '遅れ' || st.status === '期限遅れ' || st.status === '着手遅れ'));
+  const getSubTasks = (parentId: string) =>
+    allSubTasks.filter(st => st.parent_task_id === parentId);
 
   return (
     <div className="space-y-8">
@@ -470,111 +498,196 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
       </div>
 
       {settings?.ui_preferences.view === 'weekly' ? (
-        <div className="space-y-6">
-          <div className="mac-card p-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-50 text-[#007aff] rounded-xl">
-                  <FileText size={20} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-[#1d1d1f]">週報</h3>
-                  <p className="text-sm text-[#86868b]">{weekLabel}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-6">
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl font-bold text-[#1d1d1f]">{displayedTasks.length}</span>
-                  <span className="text-[10px] font-bold text-[#86868b] uppercase tracking-widest">案件</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl font-bold text-red-600">{counts.delayed}</span>
-                  <span className="text-[10px] font-bold text-[#86868b] uppercase tracking-widest">遅延あり</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl font-bold text-amber-600">{counts.start_delayed}</span>
-                  <span className="text-[10px] font-bold text-[#86868b] uppercase tracking-widest">着手遅れ</span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <span className="text-2xl font-bold text-green-600">{counts.completed}</span>
-                  <span className="text-[10px] font-bold text-[#86868b] uppercase tracking-widest">完了</span>
-                </div>
-              </div>
+        <div className="mac-card border border-[#007aff]/40 overflow-x-auto">
+          {/* Weekly mode bar */}
+          <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-black/5 bg-gradient-to-r from-[#007aff]/8 to-transparent">
+            <div className="flex items-center gap-2 text-[#007aff] font-bold text-sm">
+              <FileText size={16} />
+              <span>週報モード</span>
+              <span className="text-[#86868b] font-medium text-xs ml-1">{weekLabel}</span>
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setWeeklyExpanded(new Set(displayedTasks.map(t => t.id)))}
+                className="bg-white border border-black/10 px-2.5 py-1 rounded-md text-xs font-semibold text-[#86868b] hover:text-[#1d1d1f] hover:bg-[#f5f5f7] transition-colors"
+              >全て展開</button>
+              <button
+                onClick={() => setWeeklyExpanded(new Set())}
+                className="bg-white border border-black/10 px-2.5 py-1 rounded-md text-xs font-semibold text-[#86868b] hover:text-[#1d1d1f] hover:bg-[#f5f5f7] transition-colors"
+              >全て折りたたむ</button>
             </div>
           </div>
 
-          {weeklyGroups.map(group => {
-            const meta = PROJECT_STATUS_META[group.status];
-            return (
-              <div key={group.status} className="space-y-3">
-                <div className="flex items-center gap-2 px-1">
-                  <span className={cn("w-2 h-2 rounded-full", meta.dot)} />
-                  <h4 className={cn("text-sm font-bold", meta.text)}>{meta.label}</h4>
-                  <span className="text-xs font-bold text-[#86868b]">{group.items.length}</span>
-                </div>
-                {group.items.map(({ task, stats }) => {
-                  const { progress, planned, actual, status } = stats;
-                  const delayedSubs = getDelayedSubTasks(task.id);
-                  return (
-                    <div
-                      key={task.id}
+          {/* Column header */}
+          <div
+            className="grid items-center gap-3 px-5 h-11 text-[11px] font-bold text-[#86868b] uppercase tracking-wider bg-[#f5f5f7]/80 border-b border-black/5 min-w-[820px]"
+            style={{ gridTemplateColumns: '40px minmax(0,1.7fr) 150px 160px minmax(0,1.1fr) 80px' }}
+          >
+            <div />
+            <div>プロジェクト名</div>
+            <div>期日</div>
+            <div>工数 (予定/実績)</div>
+            <div>進捗</div>
+            <div className="text-right">アクション</div>
+          </div>
+
+          {/* Project rows */}
+          <div className="min-w-[820px]">
+            {displayedWithStats.map(({ task, stats }) => {
+              const { progress, planned, actual, status } = stats;
+              const isOpen = weeklyExpanded.has(task.id);
+              const subs = getSubTasks(task.id);
+              const isDeadlineWarning = !!stats.maxSubTaskDueDate && !!task.deadline && normalizeDate(task.deadline) < stats.maxSubTaskDueDate;
+              return (
+                <React.Fragment key={task.id}>
+                  <div
+                    className={cn(
+                      "group grid items-center gap-3 px-5 min-h-[64px] border-b border-black/5 relative transition-colors hover:bg-[#f5f5f7]",
+                      isOpen && "bg-[#f5f5f7]",
+                      status === 'delayed' && "before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:bg-red-500 before:rounded-r",
+                      status === 'start_delayed' && "before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:bg-amber-400 before:rounded-r"
+                    )}
+                    style={{ gridTemplateColumns: '40px minmax(0,1.7fr) 150px 160px minmax(0,1.1fr) 80px' }}
+                  >
+                    <button
+                      onClick={() => toggleWeeklyExpand(task.id)}
                       className={cn(
-                        "mac-card p-5 cursor-pointer hover:shadow-md transition-all border-l-4",
-                        meta.borderClass
+                        "w-6 h-6 grid place-items-center rounded-md text-[#86868b] hover:bg-black/5 hover:text-[#1d1d1f] transition-all",
+                        isOpen && "text-[#007aff]"
                       )}
-                      onClick={() => onSelectTask(task)}
+                      title={isOpen ? '折りたたむ' : '子タスクを展開'}
                     >
-                      <div className="flex items-start justify-between gap-4 flex-wrap">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-bold text-[#1d1d1f] truncate">{task.name}</span>
-                          {(status === 'delayed' || status === 'start_delayed') && (
-                            <span className={cn("flex items-center gap-1.5 flex-shrink-0 text-xs font-semibold", meta.text)}>
-                              <span className={cn("w-1.5 h-1.5 rounded-full", meta.dot)} />
-                              {meta.label}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-sm flex-shrink-0">
-                          <Clock size={14} className="text-[#86868b]" />
-                          <span className="text-[#86868b] font-medium">期日: {task.deadline || '—'}</span>
-                        </div>
-                      </div>
+                      <ChevronRight size={14} className={cn("transition-transform", isOpen && "rotate-90")} />
+                    </button>
 
-                      <div className="flex items-center gap-4 mt-4">
-                        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={cn(
+                        "w-8 h-8 grid place-items-center rounded-[9px] flex-shrink-0",
+                        status === 'delayed' ? "bg-red-50 text-red-600" : status === 'start_delayed' ? "bg-amber-50 text-amber-600" : "bg-blue-50 text-[#007aff]"
+                      )}>
+                        <Calendar size={16} />
+                      </div>
+                      <span
+                        className={cn(
+                          "font-bold text-[15px] text-[#1d1d1f] truncate cursor-pointer hover:text-[#007aff]",
+                          isOpen && "text-[#007aff]"
+                        )}
+                        onClick={() => onSelectTask(task)}
+                        title="クリックで詳細を開く"
+                      >
+                        {task.name}
+                      </span>
+                      {status === 'delayed' && <DelayBadge tone="danger" />}
+                      {status === 'start_delayed' && <DelayBadge tone="warn" />}
+                    </div>
+
+                    <div className={cn("flex items-center gap-1.5 text-[13px] tabular-nums", isDeadlineWarning ? "text-red-500 font-bold" : "text-[#86868b]")}>
+                      <Clock size={13} />
+                      <span>{task.deadline || '—'}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1 text-[13px] font-medium tabular-nums">
+                      <span className="text-[#1d1d1f] font-semibold">{planned}h</span>
+                      <span className="text-[#86868b] mx-1">/</span>
+                      <span className="text-[#007aff] font-semibold">{actual}h</span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 max-w-[220px] bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold text-[#86868b] tabular-nums w-9 text-right">{progress}%</span>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleHide(task.id); }}
+                        className="p-1.5 text-gray-300 hover:text-[#007aff] transition-colors"
+                        title="非表示（履歴へ）"
+                      >
+                        <EyeOff size={16} />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: task.id, name: task.name }); }}
+                        className="p-1.5 text-gray-300 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="border-b border-black/5 bg-gradient-to-b from-[#007aff]/[0.025] to-transparent px-5 pl-[68px] py-3">
+                      {subs.length === 0 ? (
+                        <div className="py-4 text-center text-[#86868b] text-[13px]">子タスクはありません</div>
+                      ) : (
+                        <>
                           <div
-                            className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`}
-                            style={{ width: `${progress}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-bold text-[#1d1d1f] flex-shrink-0 w-10 text-right">{progress}%</span>
-                        <div className="flex items-center gap-1 text-sm font-medium flex-shrink-0">
-                          <span className="text-[#1d1d1f]">{planned}h</span>
-                          <span className="text-[#86868b]">/</span>
-                          <span className="text-[#007aff]">{actual}h</span>
-                        </div>
-                      </div>
-
-                      {delayedSubs.length > 0 && (
-                        <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5">
-                          {delayedSubs.map(st => (
-                            <div key={st.id} className="flex items-start gap-2 text-xs">
-                              <AlertCircle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />
-                              <span className="font-medium text-[#1d1d1f] flex-shrink-0">{st.task_name}</span>
-                              {st.delay_reason && <span className="text-[#86868b] truncate">— {st.delay_reason}</span>}
-                            </div>
-                          ))}
-                        </div>
+                            className="grid items-center gap-3 px-3.5 pb-2 text-[10.5px] font-bold text-[#86868b] uppercase tracking-wider border-b border-black/5"
+                            style={{ gridTemplateColumns: '18px minmax(0,1.5fr) 110px 100px 100px 100px 110px' }}
+                          >
+                            <div />
+                            <div>タスク名</div>
+                            <div>ステータス</div>
+                            <div>開始日</div>
+                            <div>期日</div>
+                            <div>期限</div>
+                            <div>予定/実績</div>
+                          </div>
+                          {subs.map(t => {
+                            const isLate = DELAYED_STATUSES.has(t.status);
+                            return (
+                              <div
+                                key={t.id}
+                                className={cn(
+                                  "grid items-center gap-3 px-3.5 py-2 my-1 bg-white rounded-lg border border-black/5 text-[12.5px] transition-all hover:border-[#007aff] hover:translate-x-0.5",
+                                  isLate && "border-l-[3px] border-l-red-500"
+                                )}
+                                style={{ gridTemplateColumns: '18px minmax(0,1.5fr) 110px 100px 100px 100px 110px' }}
+                              >
+                                <div className="text-gray-300">
+                                  <ChevronRight size={10} />
+                                </div>
+                                <div className="font-semibold text-[#1d1d1f] truncate">{t.task_name}</div>
+                                <div>
+                                  <span className={cn("inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold", SUBTASK_STATUS_PILL[t.status] || 'bg-gray-100 text-gray-700')}>
+                                    {t.status}
+                                  </span>
+                                </div>
+                                <div className="text-[#86868b] tabular-nums">{t.start_date || '—'}</div>
+                                <div className={cn("tabular-nums", isLate ? "text-red-500 font-bold" : "text-[#86868b]")}>{t.due_date || '—'}</div>
+                                <div className={cn("tabular-nums", t.status === '期限遅れ' ? "text-red-500 font-bold" : "text-[#86868b]")}>{t.final_deadline || '—'}</div>
+                                <div className="tabular-nums text-[#86868b]">
+                                  <span>{t.planned_hours}h</span>
+                                  <span className="text-gray-300 mx-1">/</span>
+                                  <span className="text-[#007aff] font-semibold">{t.actual_hours}h</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div className="flex justify-end pt-2">
+                            <button
+                              onClick={() => onSelectTask(task)}
+                              className="inline-flex items-center gap-1 text-[#007aff] text-[11.5px] font-semibold px-2 py-1 rounded-md hover:bg-[#007aff]/8 transition-colors"
+                            >
+                              詳細を開く
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        </>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
 
           {displayedTasks.length === 0 && (
-            <div className="mac-card border-dashed py-20 text-center">
+            <div className="py-20 text-center">
               <p className="text-[#86868b] italic">
                 {filter === 'all' ? 'プロジェクトが見つかりません。新規作成してください。' : '該当するプロジェクトがありません。'}
               </p>
@@ -766,31 +879,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           className={cn(
-                            "mac-card group hover:shadow-md transition-all cursor-pointer relative overflow-hidden",
-                            statusMeta && `border-l-4 ${statusMeta.borderClass}`
+                            "mac-card group hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer relative overflow-hidden",
+                            status === 'delayed' && "border-t-[3px] border-t-red-500",
+                            status === 'start_delayed' && "border-t-[3px] border-t-amber-400"
                           )}
                           onClick={() => onSelectTask(task)}
                         >
-                          <div className="p-5 flex flex-col h-full">
-                            <div className="flex items-start justify-between gap-2 mb-3">
+                          <div className="p-[18px] flex flex-col h-full">
+                            <div className="flex items-center justify-between gap-2 mb-3.5">
                               <div className="flex items-center gap-2 min-w-0">
-                                <div {...provided.dragHandleProps} className="text-gray-300 hover:text-gray-600 cursor-grab active:cursor-grabbing flex-shrink-0">
-                                  <GripVertical size={18} />
+                                <div {...provided.dragHandleProps} className="text-gray-300 hover:text-gray-600 cursor-grab active:cursor-grabbing flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <GripVertical size={16} />
                                 </div>
                                 <div className={cn(
-                                  "p-2 rounded-xl transition-colors flex-shrink-0",
-                                  statusMeta ? statusMeta.iconBg : "bg-blue-50 text-[#007aff] group-hover:bg-[#007aff] group-hover:text-white"
+                                  "w-8 h-8 grid place-items-center rounded-[9px] flex-shrink-0",
+                                  statusMeta ? statusMeta.iconBg : "bg-blue-50 text-[#007aff]"
                                 )}>
-                                  <Calendar size={18} />
+                                  <Calendar size={16} />
                                 </div>
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
-                                {statusMeta && (
-                                  <span className={cn("flex items-center gap-1.5 text-xs font-semibold", statusMeta.text)}>
-                                    <span className={cn("w-1.5 h-1.5 rounded-full", statusMeta.dot)} />
-                                    {statusMeta.label}
-                                  </span>
-                                )}
+                                {status === 'delayed' && <DelayBadge tone="danger" />}
+                                {status === 'start_delayed' && <DelayBadge tone="warn" />}
                                 <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <button
                                     onClick={(e) => {
@@ -815,41 +925,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                               </div>
                             </div>
 
-                            <h3 className="text-lg font-bold text-[#1d1d1f] group-hover:text-[#007aff] transition-colors mb-2 truncate">
+                            <h3 className="text-base font-bold text-[#1d1d1f] group-hover:text-[#007aff] transition-colors mb-1.5 truncate">
                               {task.name}
                             </h3>
 
-                            <div className="flex items-center gap-2 text-sm mb-5">
-                              <Clock size={14} className={isDeadlineWarning ? "text-red-500" : "text-[#86868b]"} />
+                            <div className="flex items-center gap-1.5 text-[13px] mb-4">
+                              <Clock size={13} className={isDeadlineWarning ? "text-red-500" : "text-[#86868b]"} />
                               <span className={cn(
-                                "font-medium",
+                                "font-medium tabular-nums",
                                 isDeadlineWarning ? "text-red-500 font-bold" : "text-[#86868b]"
                               )}>
-                                期日: {task.deadline || '—'}
+                                {task.deadline || '—'}
                               </span>
                             </div>
 
-                            <div className="mt-auto space-y-3">
-                              <div>
-                                <div className="flex justify-between items-center text-xs font-medium mb-1.5">
-                                  <span className="text-[#86868b]">進捗率</span>
-                                  <span className="text-[#1d1d1f] font-bold">{progress}%</span>
-                                </div>
-                                <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div className="mt-auto space-y-2.5">
+                              <div className="flex items-center gap-3">
+                                <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
                                   <div
                                     className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-[#007aff]'}`}
                                     style={{ width: `${progress}%` }}
                                   />
                                 </div>
+                                <span className="text-xs font-bold text-[#86868b] tabular-nums w-9 text-right">{progress}%</span>
                               </div>
 
-                              <div className="flex items-center justify-between pt-3 border-t border-gray-100">
-                                <span className="text-[10px] font-bold text-[#86868b] uppercase tracking-widest">工数 (予定/実績)</span>
-                                <div className="flex items-center gap-1 text-sm font-bold">
-                                  <span className="text-[#1d1d1f]">{planned}h</span>
-                                  <span className="text-[#86868b]">/</span>
-                                  <span className="text-[#007aff]">{actual}h</span>
-                                </div>
+                              <div className="flex items-center gap-1 text-[13px] font-medium tabular-nums">
+                                <span className="text-[#1d1d1f] font-semibold">{planned}h</span>
+                                <span className="text-[#86868b] mx-1">/</span>
+                                <span className="text-[#007aff] font-semibold">{actual}h</span>
                               </div>
                             </div>
                           </div>
