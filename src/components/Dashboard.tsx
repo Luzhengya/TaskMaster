@@ -17,7 +17,8 @@ import {
   EyeOff,
   Type,
   Columns,
-  FileText
+  FileText,
+  MessageSquare
 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { Resizable } from 'react-resizable';
@@ -98,6 +99,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
   const [isClearingAll, setIsClearingAll] = useState(false);
   const [filter, setFilter] = useState<ProjectFilter>('all');
   const [weeklyExpanded, setWeeklyExpanded] = useState<Set<string>>(new Set());
+  // Weekly mode: floating 備考 tooltip. Positioned via viewport-fixed coords so it
+  // is never clipped by the weekly table's overflow-x containers.
+  const [remarkTip, setRemarkTip] = useState<{ text: string; x: number; y: number } | null>(null);
 
   const isWeekly = settings?.ui_preferences.view === 'weekly';
   // In weekly mode, expand all projects by default when entering the view.
@@ -493,6 +497,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
         </div>
       </div>
 
+      {/* Floating 備考 tooltip for weekly mode (viewport-fixed, never clipped) */}
+      {remarkTip && (
+        <div
+          className="pointer-events-none fixed z-[1000] max-w-md whitespace-pre-wrap rounded-lg bg-[#1d1d1f] px-3 py-2 text-[11.5px] leading-relaxed text-white shadow-xl"
+          style={{ left: remarkTip.x, top: remarkTip.y }}
+        >
+          <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-white/50">備考</span>
+          {remarkTip.text}
+        </div>
+      )}
+
       {settings?.ui_preferences.view === 'weekly' ? (
         <div className="mac-card border border-[#007aff]/40 lg:overflow-x-auto">
           {/* Weekly mode bar */}
@@ -697,11 +712,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                                   isLate && "border-l-[3px] border-l-red-500"
                                 )}
                                 style={{ gridTemplateColumns: '18px minmax(0,1.5fr) 110px 100px 100px 100px 110px' }}
+                                onMouseEnter={(e) => {
+                                  if (t.remarks && t.remarks.trim()) {
+                                    const r = e.currentTarget.getBoundingClientRect();
+                                    setRemarkTip({ text: t.remarks, x: r.left + 28, y: r.bottom + 6 });
+                                  }
+                                }}
+                                onMouseLeave={() => setRemarkTip(null)}
                               >
                                 <div className="text-gray-300">
                                   <ChevronRight size={10} />
                                 </div>
-                                <div className="font-semibold text-[#1d1d1f] truncate">{t.task_name}</div>
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="font-semibold text-[#1d1d1f] truncate">{t.task_name}</span>
+                                  {t.remarks && t.remarks.trim() && (
+                                    <MessageSquare size={12} className="flex-shrink-0 text-[#007aff]" />
+                                  )}
+                                </div>
                                 <div>
                                   <span className={cn("inline-flex px-2 py-0.5 rounded-full text-[11px] font-semibold", SUBTASK_STATUS_PILL[t.status] || 'bg-gray-100 text-gray-700')}>
                                     {t.status}
