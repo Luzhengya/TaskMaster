@@ -780,7 +780,9 @@ export const taskService = {
   subscribeTemplateItems(templateId: string, callback: (items: TemplateItem[]) => void) {
     if (this.isGuest) {
       const update = () => {
-        const filtered = guestStore.template_items.filter(t => t.template_id === templateId);
+        const filtered = guestStore.template_items
+          .filter(t => t.template_id === templateId)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         callback(filtered);
       };
       update();

@@ -408,7 +408,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         <div className="overflow-auto flex-1 relative">
           <DragDropContext onDragEnd={onDragEnd}>
             <table className="w-full text-left border-separate border-spacing-0">
-              <thead className="sticky top-[56px] lg:top-0 z-50">
+              <thead className="sticky top-0 z-50">
                 <tr className="bg-gray-50">
                   <ResizableTh index={0} />
                   <ResizableTh index={1} title="日報">日報</ResizableTh>
@@ -622,15 +622,23 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       </select>
                                     )}
                                     {colIdx === 11 && (
-                                      <EditableCell
-                                        type="textarea"
-                                        rows={1}
-                                        value={task.remarks || ''}
-                                        onSave={(val) => handleUpdate(task.id, { remarks: val as string })}
-                                        className="text-sm py-1 truncate"
-                                        title={task.remarks || ''}
-                                        placeholder="備考..."
-                                      />
+                                      <div className={cn(
+                                        "rounded-md",
+                                        task.priority === 'A' && "bg-red-50 ring-1 ring-red-200 px-1.5"
+                                      )}>
+                                        <EditableCell
+                                          type="textarea"
+                                          rows={1}
+                                          value={task.remarks || ''}
+                                          onSave={(val) => handleUpdate(task.id, { remarks: val as string })}
+                                          className={cn(
+                                            "text-sm py-1 truncate",
+                                            task.priority === 'A' && "text-red-700 placeholder:text-red-400"
+                                          )}
+                                          title={task.priority === 'A' ? '優先度A：成果物を記録してください' : (task.remarks || '')}
+                                          placeholder={task.priority === 'A' ? '成果物を記録...' : '備考...'}
+                                        />
+                                      </div>
                                     )}
                                     {colIdx === 12 && (
                                       <div className="text-center">
