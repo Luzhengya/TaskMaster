@@ -140,11 +140,11 @@ export const TemplateManagement: React.FC = () => {
           </div>
         </div>
 
-        <div className="mac-card overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="mac-card overflow-hidden flex flex-col h-[calc(100vh-220px)] lg:h-[calc(100vh-250px)]">
+          <div className="overflow-auto flex-1 relative">
             <DragDropContext onDragEnd={onDragEnd}>
               <table className="w-full text-left border-collapse min-w-[640px]">
-                <thead className="sticky top-[56px] lg:top-0 z-10">
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-gray-50 border-b border-gray-100">
                     <th className="px-2 py-3 w-10" />
                     <th className="px-4 py-3 text-[10px] font-bold text-[#86868b] uppercase tracking-widest">システム</th>

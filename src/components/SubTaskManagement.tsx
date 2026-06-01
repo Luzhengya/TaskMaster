@@ -408,7 +408,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
         <div className="overflow-auto flex-1 relative">
           <DragDropContext onDragEnd={onDragEnd}>
             <table className="w-full text-left border-separate border-spacing-0">
-              <thead className="sticky top-[56px] lg:top-0 z-50">
+              <thead className="sticky top-0 z-50">
                 <tr className="bg-gray-50">
                   <ResizableTh index={0} />
                   <ResizableTh index={1} title="日報">日報</ResizableTh>
