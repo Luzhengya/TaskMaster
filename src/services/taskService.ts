@@ -105,7 +105,11 @@ async function getOwnedDocs(collName: string, extra: Record<string, any> = {}): 
   return (res.data as any[]) || [];
 }
 
-/** owner_id（＋追加条件）の所有ドキュメントをリアルタイム監視する。 */
+/** owner_id（＋追加条件）の所有ドキュメントを監視する。
+ *  - まず get() で即時ロードして UI へ反映する（watch が起動しない環境でも表示される）。
+ *  - 続けて watch() を試み、realtime 監視が使えない場合（安全规则が doc を参照すると
+ *    INIT_WATCH_FAIL になることがある）は get() ポーリングへフォールバックする。
+ */
 function watchOwnedDocs<T>(
   collName: string,
   extra: Record<string, any>,
@@ -114,18 +118,55 @@ function watchOwnedDocs<T>(
 ): () => void {
   const owner = auth.currentUser?.uid;
   if (!owner) return () => {};
-  const watcher = db.collection(collName)
-    .where({ owner_id: owner, ...extra })
-    .limit(READ_LIMIT)
-    .watch({
-      onChange: (snapshot: any) => {
-        const rows = ((snapshot?.docs as any[]) || []).map((d) => mapDoc<T>(d));
-        if (options.sort !== false) rows.sort(orderSort);
-        callback(rows);
-      },
-      onError: (err: any) => handleDbError(err, OperationType.LIST, collName, false),
-    });
-  return () => watcher.close();
+
+  let closed = false;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  const emit = (docs: any[]) => {
+    const rows = (docs || []).map((d) => mapDoc<T>(d));
+    if (options.sort !== false) rows.sort(orderSort);
+    if (!closed) callback(rows);
+  };
+
+  const load = async () => {
+    try {
+      emit(await getOwnedDocs(collName, extra));
+    } catch (err) {
+      handleDbError(err, OperationType.LIST, collName, false);
+    }
+  };
+
+  const startPolling = () => {
+    if (pollTimer || closed) return;
+    pollTimer = setInterval(load, 5000);
+  };
+
+  // 初回ロード（watch の成否に関わらず即時表示）
+  load();
+
+  let watcher: { close: () => void } | null = null;
+  try {
+    watcher = db.collection(collName)
+      .where({ owner_id: owner, ...extra })
+      .limit(READ_LIMIT)
+      .watch({
+        onChange: (snapshot: any) => emit((snapshot?.docs as any[]) || []),
+        onError: (err: any) => {
+          handleDbError(err, OperationType.LIST, collName, false);
+          // realtime 監視が使えない環境ではポーリングへフォールバック
+          startPolling();
+        },
+      });
+  } catch (err) {
+    handleDbError(err, OperationType.LIST, collName, false);
+    startPolling();
+  }
+
+  return () => {
+    closed = true;
+    if (pollTimer) clearInterval(pollTimer);
+    try { watcher?.close(); } catch { /* noop */ }
+  };
 }
 
 
@@ -878,23 +919,13 @@ export const taskService = {
       guestObservers.add(update);
       return () => guestObservers.delete(update);
     }
-    const owner = auth.currentUser?.uid;
-    if (!owner) return () => {};
-    const watcher = db.collection('settings')
-      .where({ owner_id: owner })
-      .limit(READ_LIMIT)
-      .watch({
-        onChange: (snapshot: any) => {
-          const docs = (snapshot?.docs as any[]) || [];
-          if (docs.length === 0) {
-            callback(null);
-          } else {
-            callback(mapDoc<UserSettings>(docs[0]));
-          }
-        },
-        onError: (error: any) => handleDbError(error, OperationType.LIST, 'settings', false),
-      });
-    return () => watcher.close();
+    // get + watch（失敗時ポーリング）の共通ロジックを再利用。settings は単一ドキュメント。
+    return watchOwnedDocs<UserSettings>(
+      'settings',
+      {},
+      (rows) => callback(rows.length > 0 ? rows[0] : null),
+      { sort: false },
+    );
   },
 
   async updateSettings(id: string | undefined, settings: Partial<UserSettings>) {
