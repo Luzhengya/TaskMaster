@@ -85,6 +85,8 @@ function handleDbError(error: unknown, operationType: OperationType, path: strin
 //  - get() の既定取得件数は 20 件のため limit を引き上げる。
 // ============================================================
 const READ_LIMIT = 1000;
+// realtime watch が使えない環境向けのポーリング間隔（watch 成功時は停止する）。
+const POLL_INTERVAL_MS = 5000;
 
 /** CloudBase ドキュメント（_id）をアプリのモデル（id）へ変換する。 */
 function mapDoc<T>(d: any): T {
@@ -106,9 +108,12 @@ async function getOwnedDocs(collName: string, extra: Record<string, any> = {}): 
 }
 
 /** owner_id（＋追加条件）の所有ドキュメントを監視する。
- *  - まず get() で即時ロードして UI へ反映する（watch が起動しない環境でも表示される）。
- *  - 続けて watch() を試み、realtime 監視が使えない場合（安全规则が doc を参照すると
- *    INIT_WATCH_FAIL になることがある）は get() ポーリングへフォールバックする。
+ *  - まず get() で即時ロードして UI へ反映する。
+ *  - 安全網として常時ポーリングし、watch() が onChange を返した時点で停止する
+ *    （realtime が動けば watch、動かなければポーリングで更新を拾う）。
+ *    安全规则が doc を参照すると watch は INIT_WATCH_FAIL になり onError すら
+ *    呼ばれないことがあるため、onError 任せにせず常時ポーリングで担保する。
+ *  - 同一内容なら callback を呼ばず、無駄な再描画／ちらつきを防ぐ。
  */
 function watchOwnedDocs<T>(
   collName: string,
@@ -121,10 +126,21 @@ function watchOwnedDocs<T>(
 
   let closed = false;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let lastJson = '';
+
+  const stopPolling = () => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  };
 
   const emit = (docs: any[]) => {
     const rows = (docs || []).map((d) => mapDoc<T>(d));
     if (options.sort !== false) rows.sort(orderSort);
+    const json = JSON.stringify(rows);
+    if (json === lastJson) return; // 変化が無ければ再描画しない
+    lastJson = json;
     if (!closed) callback(rows);
   };
 
@@ -136,13 +152,9 @@ function watchOwnedDocs<T>(
     }
   };
 
-  const startPolling = () => {
-    if (pollTimer || closed) return;
-    pollTimer = setInterval(load, 5000);
-  };
-
-  // 初回ロード（watch の成否に関わらず即時表示）
+  // 即時ロード + 安全網のポーリング（watch 成功で停止）。
   load();
+  pollTimer = setInterval(load, POLL_INTERVAL_MS);
 
   let watcher: { close: () => void } | null = null;
   try {
@@ -150,21 +162,22 @@ function watchOwnedDocs<T>(
       .where({ owner_id: owner, ...extra })
       .limit(READ_LIMIT)
       .watch({
-        onChange: (snapshot: any) => emit((snapshot?.docs as any[]) || []),
+        onChange: (snapshot: any) => {
+          stopPolling(); // realtime が動作 → ポーリング不要
+          emit((snapshot?.docs as any[]) || []);
+        },
         onError: (err: any) => {
+          // watch 不可。ポーリングは起動済みなので更新は担保される。
           handleDbError(err, OperationType.LIST, collName, false);
-          // realtime 監視が使えない環境ではポーリングへフォールバック
-          startPolling();
         },
       });
   } catch (err) {
     handleDbError(err, OperationType.LIST, collName, false);
-    startPolling();
   }
 
   return () => {
     closed = true;
-    if (pollTimer) clearInterval(pollTimer);
+    stopPolling();
     try { watcher?.close(); } catch { /* noop */ }
   };
 }
@@ -496,13 +509,13 @@ export const taskService = {
     return watchOwnedDocs<ParentTask>('parent_tasks', { is_hidden: showHidden }, callback);
   },
 
-  async addParentTask(task: Omit<ParentTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+  async addParentTask(task: Omit<ParentTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>, order?: number) {
     if (this.isGuest) {
       const newTask: ParentTask = {
         ...task,
         id: Math.random().toString(36).substr(2, 9),
         is_hidden: false,
-        order: guestStore.parent_tasks.length,
+        order: order ?? guestStore.parent_tasks.length,
         owner_id: 'guest',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -514,14 +527,14 @@ export const taskService = {
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'parent_tasks';
     try {
-      // Get current count to set order
-      const existing = await getOwnedDocs(path);
-      const order = existing.length;
+      // order が渡されればそれを使う。無い場合のみ件数を読んで採番する。
+      // （大量インポート時に 1 件ごと全件読み込みすると O(n^2) になるため）
+      const computedOrder = order ?? (await getOwnedDocs(path)).length;
 
       const res = await db.collection(path).add({
         ...task,
         is_hidden: false,
-        order,
+        order: computedOrder,
         owner_id: auth.currentUser.uid,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -626,13 +639,13 @@ export const taskService = {
     return watchOwnedDocs<SubTask>('sub_tasks', { parent_task_id: parentTaskId }, callback);
   },
 
-  async addSubTask(task: Omit<SubTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
+  async addSubTask(task: Omit<SubTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>, order?: number) {
     if (this.isGuest) {
       const newTask: SubTask = {
         ...task,
         id: Math.random().toString(36).substr(2, 9),
         is_in_report: false,
-        order: guestStore.sub_tasks.filter(t => t.parent_task_id === task.parent_task_id).length,
+        order: order ?? guestStore.sub_tasks.filter(t => t.parent_task_id === task.parent_task_id).length,
         owner_id: 'guest',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -644,13 +657,13 @@ export const taskService = {
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'sub_tasks';
     try {
-      const existing = await getOwnedDocs(path, { parent_task_id: task.parent_task_id });
-      const order = existing.length;
+      // order が渡されればそれを使い、無い場合のみ件数を読んで採番する。
+      const computedOrder = order ?? (await getOwnedDocs(path, { parent_task_id: task.parent_task_id })).length;
 
       const res = await db.collection(path).add({
         ...task,
         is_in_report: false,
-        order,
+        order: computedOrder,
         owner_id: auth.currentUser.uid,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
