@@ -12,6 +12,8 @@ export enum OperationType {
 
 interface DbErrorInfo {
   error: string;
+  code?: string | number;
+  requestId?: string;
   operationType: OperationType;
   path: string | null;
   authInfo: {
@@ -22,9 +24,46 @@ interface DbErrorInfo {
   }
 }
 
+/**
+ * 任意の形のエラーから可読なメッセージを取り出す。
+ * CloudBase(腾讯云开发) の SDK は Error インスタンスではなくプレーンオブジェクト
+ * （例: { code: 'DATABASE_PERMISSION_DENIED', message: '...', requestId: '...' }）を
+ * throw するため、`String(error)` では "[object Object]" になってしまう。
+ * code / message / errMsg などを優先的に抽出し、最後の手段として JSON 化する。
+ */
+function extractErrorMessage(error: unknown): { message: string; code?: string | number; requestId?: string } {
+  if (error instanceof Error) return { message: error.message };
+  if (typeof error === 'string') return { message: error };
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, any>;
+    const code = e.code ?? e.error_code ?? e.errCode ?? e.status;
+    const requestId = e.requestId ?? e.request_id;
+    const message =
+      e.message ??
+      e.errMsg ??
+      e.error_msg ??
+      e.error_description ??
+      e.msg ??
+      e.error ??
+      // 既知のフィールドが無ければ全体を JSON 化（[object Object] を避ける）
+      (() => {
+        try {
+          return JSON.stringify(e);
+        } catch {
+          return Object.prototype.toString.call(e);
+        }
+      })();
+    return { message: String(message), code, requestId };
+  }
+  return { message: String(error) };
+}
+
 function handleDbError(error: unknown, operationType: OperationType, path: string | null, shouldThrow = true) {
+  const { message, code, requestId } = extractErrorMessage(error);
   const errInfo: DbErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: message,
+    ...(code !== undefined ? { code } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -34,7 +73,7 @@ function handleDbError(error: unknown, operationType: OperationType, path: strin
     operationType,
     path
   }
-  console.error('CloudBase DB Error: ', JSON.stringify(errInfo));
+  console.error('CloudBase DB Error: ', JSON.stringify(errInfo), '\nraw error:', error);
   if (shouldThrow) {
     throw new Error(JSON.stringify(errInfo));
   }
