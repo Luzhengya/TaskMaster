@@ -16,6 +16,8 @@ import {
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { DelayModal, DelaySubmitPayload } from './DelayModal';
+import { fmtDate, addBusinessDays } from '../dateUtils';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -41,8 +43,8 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   const [subTasks, setSubTasks] = useState<SubTask[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [delayModalTask, setDelayModalTask] = useState<SubTask | null>(null);
-  const [delayReason, setDelayReason] = useState('他の作業の優先度が高くのため');
-  const [impactAssessment, setImpactAssessment] = useState<'小' | '中' | '大'>('小');
+  // 遅延モーダルをキャンセルしたとき、ステータスを元へ戻すために直前値を保持する。
+  const [delayPrevStatus, setDelayPrevStatus] = useState<SubTaskStatus | null>(null);
   const [iconModalTask, setIconModalTask] = useState<SubTask | null>(null);
   const [iconInput, setIconInput] = useState('');
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -108,11 +110,7 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
   };
 
   useEffect(() => {
-    const unsubscribe = taskService.subscribeSubTasks(parentTask.id, (tasks) => {
-      console.log('[subscribeSubTasks] Received', tasks.length, 'tasks. Sample icon_data:',
-        tasks.slice(0, 3).map(t => ({ id: t.id, task_name: t.task_name, icon_data: t.icon_data })));
-      setSubTasks(tasks);
-    });
+    const unsubscribe = taskService.subscribeSubTasks(parentTask.id, setSubTasks);
     return () => unsubscribe();
   }, [parentTask.id]);
 
@@ -200,19 +198,20 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
           newUpdates.icon_data = '⚠️';
         }
 
-        // Show delay modal for '遅れ' status
-        if (newStatus === '遅れ') {
-          setDelayModalTask(task);
-          setDelayReason('他の作業の優先度が高くのため');
-          setImpactAssessment('小');
+        // 遅延系ステータスへの変更時は優先度を A へ引き上げる。
+        newUpdates.priority = 'A';
+
+        // 遅れ・着手遅れは遅延登録モーダルで原因を記録（task.status は変更前の値なので
+        // モーダルへは変更後ステータスを渡してテーマ色を切り替える）。
+        if (newStatus === '遅れ' || newStatus === '着手遅れ') {
+          setDelayModalTask({ ...task, status: newStatus });
+          setDelayPrevStatus(task.status);
         }
       }
     }
 
-    console.log('[handleUpdate] Updating task', id, 'with', newUpdates);
     try {
       await taskService.updateSubTask(id, newUpdates);
-      console.log('[handleUpdate] Update successful');
     } catch (err: any) {
       console.error('[handleUpdate] Update failed:', err);
       // Extract concise error message
@@ -226,13 +225,86 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     }
   };
 
-  const handleDelaySubmit = async () => {
-    if (!delayModalTask) return;
-    await taskService.updateSubTask(delayModalTask.id, {
-      delay_reason: delayReason,
-      impact_assessment: impactAssessment
-    });
+  // 遅延モーダルの登録：原因を記録し、影響ありなら本タスク＋選択した後続タスクの
+  // 期日・期限を影響日数だけ後ろへずらす（取り消し線表示用に元の値を保存）。
+  const handleDelaySubmit = async ({ reason, impactDays, affectedTaskIds }: DelaySubmitPayload) => {
+    const target = delayModalTask;
+    if (!target) return;
+
+    const updatesById = new Map<string, Record<string, any>>();
+    const ensure = (id: string) => {
+      const existing = updatesById.get(id);
+      if (existing) return existing;
+      const fresh: Record<string, any> = {};
+      updatesById.set(id, fresh);
+      return fresh;
+    };
+
+    // 遅延した本タスクに原因・影響日数を記録。
+    const base = ensure(target.id);
+    base.delay_reason = reason;
+    base.delay_impact_days = impactDays;
+
+    // 影響ありなら対象タスクの期日・期限をずらす。
+    if (impactDays > 0) {
+      for (const id of affectedTaskIds) {
+        const t = subTasks.find(s => s.id === id);
+        if (!t) continue;
+        const u = ensure(id);
+        // シフトの発生元ステータス（着手遅れ＝黄、遅れ＝赤の表示色を決める）。
+        u.delay_shift_status = target.status;
+        if (t.due_date) {
+          u.original_due_date = t.original_due_date || t.due_date;
+          u.due_date = addBusinessDays(t.due_date, impactDays);
+        }
+        if (t.final_deadline) {
+          u.original_final_deadline = t.original_final_deadline || t.final_deadline;
+          u.final_deadline = addBusinessDays(t.final_deadline, impactDays);
+        }
+      }
+    }
+
+    // 後続タスクのシフトで最大期日が親の最終期日を超えたら、親の最終期日も延ばす。
+    let parentDeadlineUpdate: Promise<unknown> | null = null;
+    if (impactDays > 0) {
+      let maxDue = '';
+      for (const s of subTasks) {
+        const u = updatesById.get(s.id);
+        const due = u && typeof u.due_date === 'string' && u.due_date ? u.due_date : s.due_date;
+        if (due && normalizeDate(due) > normalizeDate(maxDue)) maxDue = due;
+      }
+      if (maxDue && normalizeDate(maxDue) > normalizeDate(parentTask.deadline)) {
+        parentDeadlineUpdate = taskService.updateParentTask(parentTask.id, { deadline: maxDue });
+      }
+    }
+
     setDelayModalTask(null);
+    setDelayPrevStatus(null);
+    try {
+      await Promise.all([
+        ...[...updatesById].map(([id, u]) => taskService.updateSubTask(id, u)),
+        ...(parentDeadlineUpdate ? [parentDeadlineUpdate] : []),
+      ]);
+    } catch (err: any) {
+      console.error('[handleDelaySubmit] failed:', err);
+      setUpdateError(`遅延の登録に失敗しました: ${err?.message || String(err)}`);
+      setTimeout(() => setUpdateError(null), 5000);
+    }
+  };
+
+  // モーダルをキャンセルしたら「遅れ」へ変更する前のステータスへ戻す。
+  const handleDelayCancel = async () => {
+    const target = delayModalTask;
+    const prev = delayPrevStatus;
+    setDelayModalTask(null);
+    setDelayPrevStatus(null);
+    if (target && prev && prev !== '遅れ') {
+      try {
+        await taskService.updateSubTask(target.id, { status: prev });
+      } catch (err) {
+        console.error('[handleDelayCancel] revert failed:', err);
+      }
+    }
   };
 
   const onDragEnd = async (result: DropResult) => {
@@ -434,25 +506,39 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                   >
                     {subTasks.map((task, index) => {
                       const isCompleted = task.status === '済';
-                      
+                      const isHighlighted = highlightTaskId === task.id;
+                      const LAST_COL = 12;
+
                       return (
                         <Draggable key={task.id} draggableId={task.id} index={index}>
                           {(provided) => (
-                            <tr 
+                            <tr
                               id={`task-${task.id}`}
                               ref={provided.innerRef}
                               {...provided.draggableProps}
                               className={cn(
                                 "group transition-colors",
-                                isCompleted ? "bg-[#f5f5f7]" : "hover:bg-gray-50",
-                                highlightTaskId === task.id && "ring-2 ring-[#007aff] ring-inset"
+                                isCompleted ? "bg-[#f5f5f7]" : "hover:bg-gray-50"
                               )}
                             >
                               {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(colIdx => {
                                 const isFrozen = frozenColumns.includes(colIdx);
                                 const left = getFrozenLeft(colIdx);
                                 const width = columnWidths[colIdx];
-                                
+
+                                // 選択ハイライトの枠線は <tr> に付けると固定列（不透明・高 z-index）に
+                                // 隠れてしまうため、各セルに上下＋両端の inset box-shadow として描く。
+                                let boxShadow: string | undefined;
+                                if (isHighlighted) {
+                                  const parts = [
+                                    'inset 0 2px 0 0 #007aff',
+                                    'inset 0 -2px 0 0 #007aff',
+                                  ];
+                                  if (colIdx === 0) parts.push('inset 2px 0 0 0 #007aff');
+                                  if (colIdx === LAST_COL) parts.push('inset -2px 0 0 0 #007aff');
+                                  boxShadow = parts.join(', ');
+                                }
+
                                 return (
                                   <td
                                     key={colIdx}
@@ -462,19 +548,25 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                       maxWidth: width,
                                       left: isFrozen ? left : undefined,
                                       position: isFrozen ? 'sticky' : 'relative',
+                                      ...(boxShadow ? { boxShadow } : {}),
                                     }}
                                     className={cn(
                                       "px-4 py-2 border-b border-gray-50 transition-colors",
-                                      // z-index via class so focus-within can override inline style
-                                      isFrozen ? "z-30" : "z-[1]",
+                                      // z-index via class so focus-within can override inline style.
+                                      // ハイライト行は固定列より前面（z-40）にして枠線を確実に見せる。
+                                      isHighlighted ? "z-40" : isFrozen ? "z-30" : "z-[1]",
                                       // Raise above frozen columns (z-30) when a child has focus,
                                       // so focus rings/outlines aren't hidden by sticky neighbors
                                       "focus-within:!z-50",
                                       // Apply background colors to ALL cells (frozen and non-frozen) for consistency
                                       // Sticky cells need explicit bg, non-sticky cells get same bg to match
-                                      isCompleted ? "bg-[#f5f5f7]" : "bg-white group-hover:bg-gray-50",
-                                      isFrozen && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]",
-                                      isCompleted && !isFrozen && "opacity-60"
+                                      isHighlighted
+                                        ? "bg-blue-50/60"
+                                        : isCompleted
+                                          ? "bg-[#f5f5f7]"
+                                          : "bg-white group-hover:bg-gray-50",
+                                      isFrozen && !boxShadow && "shadow-[1px_0_0_0_rgba(0,0,0,0.05)]",
+                                      isCompleted && !isFrozen && !isHighlighted && "opacity-60"
                                     )}
                                   >
                                     {colIdx === 0 && (
@@ -572,28 +664,52 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
                                         )}
                                       />
                                     )}
-                                    {colIdx === 6 && (
-                                      <input
-                                        type="date"
-                                        value={task.due_date || ''}
-                                        onChange={(e) => handleUpdate(task.id, { due_date: e.target.value })}
-                                        className={cn(
-                                          "bg-transparent focus:outline-none text-sm w-full",
-                                          task.status === '遅れ' && "text-red-600 font-bold bg-red-50/30"
-                                        )}
-                                      />
-                                    )}
-                                    {colIdx === 7 && (
-                                      <input
-                                        type="date"
-                                        value={task.final_deadline}
-                                        onChange={(e) => handleUpdate(task.id, { final_deadline: e.target.value })}
-                                        className={cn(
-                                          "bg-transparent focus:outline-none text-sm w-full",
-                                          task.status === '期限遅れ' && "text-red-600 font-bold bg-red-50/30"
-                                        )}
-                                      />
-                                    )}
+                                    {colIdx === 6 && (() => {
+                                      const shifted = !!task.original_due_date && task.original_due_date !== task.due_date;
+                                      // シフト済みなら発生元（delay_shift_status）の色、未シフトなら自身のステータス色。
+                                      const delayColor = (task.delay_shift_status ?? task.status) === '着手遅れ' ? 'text-orange-600' : 'text-red-600';
+                                      return (
+                                        <div className="flex flex-col leading-tight">
+                                          {shifted && (
+                                            <span className="text-[10px] text-gray-400 line-through tabular-nums">
+                                              {fmtDate(task.original_due_date)}
+                                            </span>
+                                          )}
+                                          <input
+                                            type="date"
+                                            value={task.due_date || ''}
+                                            onChange={(e) => handleUpdate(task.id, { due_date: e.target.value })}
+                                            className={cn(
+                                              "bg-transparent focus:outline-none text-sm w-full",
+                                              (task.status === '遅れ' || shifted) && cn(delayColor, "font-bold")
+                                            )}
+                                          />
+                                        </div>
+                                      );
+                                    })()}
+                                    {colIdx === 7 && (() => {
+                                      const shifted = !!task.original_final_deadline && task.original_final_deadline !== task.final_deadline;
+                                      // シフト済みなら発生元（delay_shift_status）の色、未シフトなら自身のステータス色。
+                                      const delayColor = (task.delay_shift_status ?? task.status) === '着手遅れ' ? 'text-orange-600' : 'text-red-600';
+                                      return (
+                                        <div className="flex flex-col leading-tight">
+                                          {shifted && (
+                                            <span className="text-[10px] text-gray-400 line-through tabular-nums">
+                                              {fmtDate(task.original_final_deadline)}
+                                            </span>
+                                          )}
+                                          <input
+                                            type="date"
+                                            value={task.final_deadline}
+                                            onChange={(e) => handleUpdate(task.id, { final_deadline: e.target.value })}
+                                            className={cn(
+                                              "bg-transparent focus:outline-none text-sm w-full",
+                                              (task.status === '期限遅れ' || shifted) && cn(delayColor, "font-bold")
+                                            )}
+                                          />
+                                        </div>
+                                      );
+                                    })()}
                                     {colIdx === 8 && (
                                       <EditableCell
                                         type="number"
@@ -666,64 +782,13 @@ export const SubTaskManagement: React.FC<SubTaskManagementProps> = ({ parentTask
     </div>
 
       {delayModalTask && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="mac-card max-w-md w-full p-6 shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-3 text-red-600 mb-4">
-              <AlertCircle size={24} />
-              <h3 className="text-lg font-bold">遅延情報の入力</h3>
-            </div>
-            
-            <div className="space-y-4 mb-6">
-              <div>
-                <label className="block text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">
-                  遅延原因
-                </label>
-                <textarea
-                  value={delayReason}
-                  onChange={(e) => setDelayReason(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#f5f5f7] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#007aff]/20 text-sm min-h-[100px]"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-[10px] font-bold text-[#86868b] uppercase tracking-widest mb-2">
-                  影響判断
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['小', '中', '大'] as const).map((level) => (
-                    <button
-                      key={level}
-                      onClick={() => setImpactAssessment(level)}
-                      className={cn(
-                        "py-2 rounded-lg text-xs font-bold transition-all",
-                        impactAssessment === level 
-                          ? "bg-[#007aff] text-white shadow-sm" 
-                          : "bg-gray-100 text-[#1d1d1f] hover:bg-gray-200"
-                      )}
-                    >
-                      {level === '小' ? '小' : level === '中' ? '中 (期日影響なし)' : '大 (期日影響あり)'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleDelaySubmit}
-                className="flex-1 py-2.5 bg-[#007aff] text-white rounded-xl font-bold hover:bg-[#0070e0] transition-colors"
-              >
-                保存する
-              </button>
-              <button
-                onClick={() => setDelayModalTask(null)}
-                className="flex-1 py-2.5 bg-gray-100 text-[#1d1d1f] rounded-xl font-bold hover:bg-gray-200 transition-colors"
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
+        <DelayModal
+          task={delayModalTask}
+          siblings={subTasks}
+          projectName={parentTask.name}
+          onCancel={handleDelayCancel}
+          onSubmit={handleDelaySubmit}
+        />
       )}
 
       {deleteId && (

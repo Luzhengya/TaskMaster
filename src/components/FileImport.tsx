@@ -25,7 +25,7 @@ interface FileImportProps {
   onImportComplete: () => void;
 }
 
-const NO_DATA_MESSAGE = '没有需要导入的数据';
+const NO_DATA_MESSAGE = 'インポートするデータがありません。';
 
 /** Served from `public/task-import-template.xlsx` (Vite static asset). */
 const IMPORT_TEMPLATE_URL = '/task-import-template.xlsx';
@@ -80,7 +80,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
             workbook.worksheets.find(ws => ws.name.toLowerCase() === 'import') ??
             workbook.worksheets[0];
           if (!worksheet) {
-            throw new Error('Excel 文件中没有工作表。');
+            throw new Error('Excel ファイルにワークシートがありません。');
           }
 
           const allRows = worksheetToRows(worksheet);
@@ -183,33 +183,37 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
 
             // 各 row を SubTask 入力へ変換。order は行インデックスで確定させ、
             // 1 件ごとの全件読み込み（O(n^2)）を避ける。
-            const subTaskInputs = projectRows.map((row) => ({
-              parent_task_id: parentId,
-              system: str(row, 'system'),
-              month: str(row, 'month'),
-              daily_report_date:
-                parseDate(getRowValue(row, columnMap, 'dailyReport')) ||
-                new Date().toISOString().split('T')[0],
-              start_date: parseDate(getRowValue(row, columnMap, 'startDate')),
-              due_date: parseDate(getRowValue(row, columnMap, 'dueDate')),
-              final_deadline: parseDate(
-                getRowValue(row, columnMap, 'finalDeadline'),
-              ),
-              status: (str(row, 'status', '未着手') || '未着手') as SubTaskStatus,
-              task_name: str(row, 'taskName'),
-              planned_hours: parseNumber(
+            const subTaskInputs = projectRows.map((row) => {
+              const dueDate = parseDate(getRowValue(row, columnMap, 'dueDate'));
+              const plannedHours = parseNumber(
                 getRowValue(row, columnMap, 'plannedHours'),
-              ),
-              actual_hours: parseNumber(
-                getRowValue(row, columnMap, 'actualHours'),
-              ),
-              priority: (str(row, 'priority', 'B') || 'B') as Priority,
-              remarks: str(row, 'remarks'),
-              weekday: str(row, 'weekday'),
-              week: str(row, 'week'),
-              week_number: 0,
-              flag: 0,
-            }));
+              );
+              return {
+                parent_task_id: parentId,
+                system: str(row, 'system'),
+                month: str(row, 'month'),
+                daily_report_date:
+                  parseDate(getRowValue(row, columnMap, 'dailyReport')) ||
+                  new Date().toISOString().split('T')[0],
+                start_date: parseDate(getRowValue(row, columnMap, 'startDate')),
+                due_date: dueDate,
+                // 期限は Excel から取り込まず、期日＋予定工数から自動計算する
+                // （規則表シート参照。土日を飛ばす）。
+                final_deadline: taskService.calculateDeadline(dueDate, plannedHours),
+                status: (str(row, 'status', '未着手') || '未着手') as SubTaskStatus,
+                task_name: str(row, 'taskName'),
+                planned_hours: plannedHours,
+                actual_hours: parseNumber(
+                  getRowValue(row, columnMap, 'actualHours'),
+                ),
+                priority: (str(row, 'priority', 'B') || 'B') as Priority,
+                remarks: str(row, 'remarks'),
+                weekday: str(row, 'weekday'),
+                week: str(row, 'week'),
+                week_number: 0,
+                flag: 0,
+              };
+            });
 
             // 並列書き込み（同時実行数を制限してサーバ負荷を抑える）。
             const CONCURRENCY = 20;
@@ -227,7 +231,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           }, 1500);
         } catch (err: unknown) {
           const message =
-            err instanceof Error ? err.message : '导入 Excel 失败。';
+            err instanceof Error ? err.message : 'Excel のインポートに失敗しました。';
           setError(message);
         } finally {
           setIsImporting(false);
@@ -235,7 +239,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
       };
       reader.readAsArrayBuffer(file);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '读取文件失败。';
+      const message = err instanceof Error ? err.message : 'ファイルの読み込みに失敗しました。';
       setError(message);
       setIsImporting(false);
     }
@@ -266,14 +270,14 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
         {isImporting ? (
           <div className="text-center">
             <Loader2 className="w-12 h-12 text-[#007aff] animate-spin mx-auto mb-4" />
-            <p className="text-lg font-bold">正在导入…</p>
-            <p className="text-sm text-[#86868b]">请稍候</p>
+            <p className="text-lg font-bold">インポート中…</p>
+            <p className="text-sm text-[#86868b]">少々お待ちください</p>
           </div>
         ) : success ? (
           <div className="text-center animate-in zoom-in-95">
             <CheckCircle2 className="w-12 h-12 text-[#28c840] mx-auto mb-4" />
-            <p className="text-lg font-bold">导入成功</p>
-            <p className="text-sm text-[#86868b]">正在跳转到任务列表…</p>
+            <p className="text-lg font-bold">インポート完了</p>
+            <p className="text-sm text-[#86868b]">タスク一覧へ移動します…</p>
           </div>
         ) : (
           <div className="text-center">
@@ -281,15 +285,15 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
               <FileUp className="w-8 h-8 text-[#007aff]" />
             </div>
             <p className="text-lg font-bold mb-2">
-              {isDragActive ? '松开以上传文件' : '点击或拖拽 Excel 文件导入'}
+              {isDragActive ? 'ドロップしてアップロード' : 'クリックまたは Excel ファイルをドラッグしてインポート'}
             </p>
             <p className="text-sm text-[#86868b] mb-6">
-              第 1 行为表头，数据从第 2 行开始（{TEMPLATE_HEADERS.projectName}、
-              {TEMPLATE_HEADERS.taskName} 等）
+              1 行目は見出し、データは 2 行目から（{TEMPLATE_HEADERS.projectName}・
+              {TEMPLATE_HEADERS.taskName} など）
             </p>
             <div className="flex items-center gap-2 text-[10px] font-bold text-[#86868b] uppercase tracking-widest bg-[#f5f5f7] px-4 py-2 rounded-full">
               <FileText size={12} />
-              周报模板格式
+              週報テンプレート形式
             </div>
           </div>
         )}
@@ -309,7 +313,7 @@ export const FileImport: React.FC<FileImportProps> = ({ onImportComplete }) => {
           className="mac-button mac-button-secondary inline-flex items-center gap-2 text-sm font-bold"
         >
           <Download size={18} />
-          下载导入模板（Excel）
+          インポートテンプレートをダウンロード（Excel）
         </a>
       </div>
     </div>

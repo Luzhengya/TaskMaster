@@ -85,8 +85,6 @@ function handleDbError(error: unknown, operationType: OperationType, path: strin
 //  - get() の既定取得件数は 20 件のため limit を引き上げる。
 // ============================================================
 const READ_LIMIT = 1000;
-// realtime watch が使えない環境向けのポーリング間隔（watch 成功時は停止する）。
-const POLL_INTERVAL_MS = 5000;
 
 /** CloudBase ドキュメント（_id）をアプリのモデル（id）へ変換する。 */
 function mapDoc<T>(d: any): T {
@@ -120,12 +118,50 @@ function ownedDoc(collName: string, id: string, owner: string | undefined = auth
   return db.collection(collName).where({ _id: id, owner_id: owner });
 }
 
-/** owner_id（＋追加条件）の所有ドキュメントを監視する。
+// ============================================================
+// アクティブな購読のレジストリ（イベント駆動の再取得）
+//  - 常時ポーリングは廃止。再取得は「変化が起きた時」だけ行う:
+//      1) マウント時の初回 get()
+//      2) 自分の書き込み後（notifyCollection）
+//      3) ウィンドウ復帰／タブ可視化時（他端末・他タブの変更を拾う）
+//  - watch() が動作している購読は onChange でライブ更新されるため、再取得をスキップする。
+// ============================================================
+interface ActiveSub {
+  collName: string;
+  reload: () => void;
+}
+const activeSubs = new Set<ActiveSub>();
+
+/** 指定コレクションのアクティブ購読を再取得する（書き込み成功後に呼ぶ）。 */
+function notifyCollection(...collNames: string[]) {
+  const targets = new Set(collNames);
+  activeSubs.forEach((sub) => {
+    if (targets.has(sub.collName)) sub.reload();
+  });
+}
+
+// ウィンドウ復帰・タブ可視化で全購読を1回再取得（focus と visibilitychange の
+// 同時発火は短いデバウンスで1回にまとめ、無駄なリクエストを防ぐ）。
+if (typeof window !== 'undefined') {
+  let pending: ReturnType<typeof setTimeout> | null = null;
+  const reloadAllSoon = () => {
+    if (pending) return;
+    pending = setTimeout(() => {
+      pending = null;
+      activeSubs.forEach((sub) => sub.reload());
+    }, 200);
+  };
+  window.addEventListener('focus', reloadAllSoon);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') reloadAllSoon();
+  });
+}
+
+/** owner_id（＋追加条件）の所有ドキュメントを購読する。
  *  - まず get() で即時ロードして UI へ反映する。
- *  - 安全網として常時ポーリングし、watch() が onChange を返した時点で停止する
- *    （realtime が動けば watch、動かなければポーリングで更新を拾う）。
- *    安全规则が doc を参照すると watch は INIT_WATCH_FAIL になり onError すら
- *    呼ばれないことがあるため、onError 任せにせず常時ポーリングで担保する。
+ *  - watch() が使えれば onChange でライブ更新（その購読は再取得不要）。
+ *  - watch() が使えない環境（安全规则が doc 参照／非 HTTPS で 403 等）では、
+ *    自分の書き込み（notifyCollection）とタブ復帰時にだけ再取得して最新化する。
  *  - 同一内容なら callback を呼ばず、無駄な再描画／ちらつきを防ぐ。
  */
 function watchOwnedDocs<T>(
@@ -138,15 +174,8 @@ function watchOwnedDocs<T>(
   if (!owner) return () => {};
 
   let closed = false;
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let watchActive = false; // watch() が稼働中なら再取得は不要（ライブ更新される）
   let lastJson = '';
-
-  const stopPolling = () => {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-  };
 
   const emit = (docs: any[]) => {
     const rows = (docs || []).map((d) => mapDoc<T>(d));
@@ -165,9 +194,28 @@ function watchOwnedDocs<T>(
     }
   };
 
-  // 即時ロード + 安全網のポーリング（watch 成功で停止）。
+  // 即時ロード。
   load();
-  pollTimer = setInterval(load, POLL_INTERVAL_MS);
+
+  // イベント駆動の再取得対象として登録（watch 稼働中／クローズ後はスキップ）。
+  const sub: ActiveSub = {
+    collName,
+    reload: () => { if (!closed && !watchActive) load(); },
+  };
+  activeSubs.add(sub);
+
+  // watch() が使えない環境（INIT_WATCH_FAIL / 非 HTTPS の 403 等）は想定内のため、
+  // エラーを赤ログで連発せず、購読ごとに 1 回だけ簡潔な warn を出す（コンソール汚染を防ぐ）。
+  let warnedWatchFail = false;
+  const warnWatchUnavailable = (err: unknown) => {
+    if (warnedWatchFail) return;
+    warnedWatchFail = true;
+    const code = (err as any)?.code ?? (err as any)?.msg ?? err;
+    console.warn(
+      `[watch] realtime 監視を利用できません（${collName}）。書き込み／タブ復帰時の再取得で更新します。`,
+      code,
+    );
+  };
 
   let watcher: { close: () => void } | null = null;
   try {
@@ -176,21 +224,18 @@ function watchOwnedDocs<T>(
       .limit(READ_LIMIT)
       .watch({
         onChange: (snapshot: any) => {
-          stopPolling(); // realtime が動作 → ポーリング不要
+          watchActive = true; // realtime が動作 → 再取得は不要
           emit((snapshot?.docs as any[]) || []);
         },
-        onError: (err: any) => {
-          // watch 不可。ポーリングは起動済みなので更新は担保される。
-          handleDbError(err, OperationType.LIST, collName, false);
-        },
+        onError: warnWatchUnavailable, // watch 不可。notifyCollection／タブ復帰で担保。
       });
   } catch (err) {
-    handleDbError(err, OperationType.LIST, collName, false);
+    warnWatchUnavailable(err);
   }
 
   return () => {
     closed = true;
-    stopPolling();
+    activeSubs.delete(sub);
     try { watcher?.close(); } catch { /* noop */ }
   };
 }
@@ -552,6 +597,7 @@ export const taskService = {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
+      notifyCollection(path);
       return res.id;
     } catch (error) {
       handleDbError(error, OperationType.CREATE, path);
@@ -577,6 +623,7 @@ export const taskService = {
         ...task,
         updated_at: new Date().toISOString()
       });
+      notifyCollection('parent_tasks');
     } catch (error) {
       handleDbError(error, OperationType.UPDATE, path);
     }
@@ -597,6 +644,7 @@ export const taskService = {
 
       // Delete parent task
       await ownedDoc('parent_tasks', id).remove();
+      notifyCollection('parent_tasks', 'sub_tasks');
     } catch (error) {
       handleDbError(error, OperationType.DELETE, path);
     }
@@ -631,6 +679,7 @@ export const taskService = {
         .map((d) => ownedDoc('sub_tasks', d._id).remove());
 
       await Promise.all([...pDeletes, ...sDeletes]);
+      notifyCollection('parent_tasks', 'sub_tasks');
     } catch (error) {
       handleDbError(error, OperationType.DELETE, 'all_data');
     }
@@ -691,31 +740,44 @@ export const taskService = {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
+      notifyCollection(path);
       return res.id;
     } catch (error) {
       handleDbError(error, OperationType.CREATE, path);
     }
   },
 
+  /**
+   * 期日（dueDate）と予定工数（plannedHours）から期限を自動計算する。
+   * 規則表（インポートテンプレートの「規則表」シート）に準拠し、土日を飛ばす：
+   *   ・工数 1～2時間 ：期日＋1営業日
+   *   ・工数 3～5時間 ：期日＋2営業日
+   *   ・工数 5～8時間 ：期日＋4営業日（3～4日のうち長い方）
+   *   ・工数 8時間以上：期日＋1週間（5営業日）
+   * 期日が無い／不正、または工数が規則外（0 以下）の場合は期日をそのまま返す
+   * （期日も無ければ空文字）。
+   */
   calculateDeadline(dueDate: string, plannedHours: number): string {
+    if (!dueDate) return '';
     const date = new Date(dueDate);
-    let businessDaysToAdd = 0;
+    if (isNaN(date.getTime())) return dueDate;
 
-    if (plannedHours >= 1 && plannedHours < 3) {
+    let businessDaysToAdd = 0;
+    if (plannedHours > 0 && plannedHours < 3) {
       businessDaysToAdd = 1;
     } else if (plannedHours >= 3 && plannedHours < 5) {
       businessDaysToAdd = 2;
     } else if (plannedHours >= 5 && plannedHours < 8) {
-      businessDaysToAdd = 4; // User said 3-4, I'll pick 4 for safety or 3. Let's use 4 as per "3-4".
+      businessDaysToAdd = 4;
     } else if (plannedHours >= 8) {
-      businessDaysToAdd = 5; // 1 week business days
+      businessDaysToAdd = 5; // 1週間 ＝ 5営業日
     }
 
     let addedDays = 0;
     while (addedDays < businessDaysToAdd) {
       date.setDate(date.getDate() + 1);
       const day = date.getDay();
-      if (day !== 0 && day !== 6) { // Not Sunday (0) or Saturday (6)
+      if (day !== 0 && day !== 6) { // 日曜(0)・土曜(6)を飛ばす
         addedDays++;
       }
     }
@@ -742,6 +804,7 @@ export const taskService = {
         ...task,
         updated_at: new Date().toISOString()
       });
+      notifyCollection('sub_tasks');
     } catch (error) {
       handleDbError(error, OperationType.UPDATE, path);
     }
@@ -756,6 +819,7 @@ export const taskService = {
     const path = `sub_tasks/${id}`;
     try {
       await ownedDoc('sub_tasks', id).remove();
+      notifyCollection('sub_tasks');
     } catch (error) {
       handleDbError(error, OperationType.DELETE, path);
     }
@@ -801,6 +865,7 @@ export const taskService = {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
+      notifyCollection(path);
       return res.id;
     } catch (error) {
       handleDbError(error, OperationType.CREATE, path);
@@ -826,6 +891,7 @@ export const taskService = {
         ...updates,
         updated_at: new Date().toISOString()
       });
+      notifyCollection('task_templates');
     } catch (error) {
       handleDbError(error, OperationType.UPDATE, path);
     }
@@ -846,6 +912,7 @@ export const taskService = {
 
       // Delete template
       await ownedDoc('task_templates', id).remove();
+      notifyCollection('task_templates', 'template_items');
     } catch (error) {
       handleDbError(error, OperationType.DELETE, path);
     }
@@ -892,6 +959,7 @@ export const taskService = {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
+      notifyCollection(path);
       return res.id;
     } catch (error) {
       handleDbError(error, OperationType.CREATE, path);
@@ -917,6 +985,7 @@ export const taskService = {
         ...updates,
         updated_at: new Date().toISOString()
       });
+      notifyCollection('template_items');
     } catch (error) {
       handleDbError(error, OperationType.UPDATE, path);
     }
@@ -931,6 +1000,7 @@ export const taskService = {
     const path = `template_items/${id}`;
     try {
       await ownedDoc('template_items', id).remove();
+      notifyCollection('template_items');
     } catch (error) {
       handleDbError(error, OperationType.DELETE, path);
     }
@@ -989,6 +1059,7 @@ export const taskService = {
           ...settings,
           updated_at: new Date().toISOString()
         });
+        notifyCollection('settings');
       } catch (error) {
         handleDbError(error, OperationType.UPDATE, path);
       }
@@ -1000,6 +1071,7 @@ export const taskService = {
           owner_id: auth.currentUser.uid,
           updated_at: new Date().toISOString()
         });
+        notifyCollection(path);
       } catch (error) {
         handleDbError(error, OperationType.CREATE, path);
       }

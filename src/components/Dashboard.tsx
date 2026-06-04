@@ -22,6 +22,7 @@ import {
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { Resizable } from 'react-resizable';
 import { taskService } from '../services/taskService';
+import { getEnabledViews, resolveActiveView, ProjectView } from '../viewPrefs';
 
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -85,7 +86,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
-  const [newPlannedHours, setNewPlannedHours] = useState<number>(0);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [templates, setTemplates] = useState<TaskTemplate[]>([]);
   const [allSubTasks, setAllSubTasks] = useState<SubTask[]>([]);
@@ -104,12 +104,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
   const [filter, setFilter] = useState<ProjectFilter>('all');
   const [weeklyExpanded, setWeeklyExpanded] = useState<Set<string>>(new Set());
 
-  const isWeekly = settings?.ui_preferences.view === 'weekly';
+  const enabledViews = getEnabledViews(settings);
+  const activeView = resolveActiveView(settings);
+  const isWeekly = activeView === 'weekly';
   // In weekly mode, expand all projects by default when entering the view.
   useEffect(() => {
     if (isWeekly) setWeeklyExpanded(new Set(parentTasks.map(p => p.id)));
     else setWeeklyExpanded(new Set());
   }, [isWeekly]);
+
+  const setView = (view: ProjectView) => {
+    if (settings) {
+      taskService.updateSettings(settings.id, {
+        ...settings,
+        ui_preferences: { ...settings.ui_preferences, view },
+      });
+    }
+  };
+  const VIEW_BUTTONS: { view: ProjectView; title: string; icon: React.ReactNode }[] = [
+    { view: 'grid', title: 'グリッド表示', icon: <LayoutGrid size={18} /> },
+    { view: 'table', title: 'リスト表示', icon: <List size={18} /> },
+    { view: 'weekly', title: '週報モード', icon: <FileText size={18} /> },
+  ];
+  const visibleViewButtons = VIEW_BUTTONS.filter(b => enabledViews[b.view]);
   const toggleWeeklyExpand = (id: string) => {
     setWeeklyExpanded(prev => {
       const next = new Set(prev);
@@ -168,20 +185,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newDueDate) return;
-    
-    const calculatedDeadline = taskService.calculateDeadline(newDueDate, newPlannedHours);
 
     try {
+      // テンプレ選択時は子タスクを先に取得し、親の予定工数・期日を自動算出する。
+      const items = selectedTemplateId
+        ? await taskService.getTemplateItems(selectedTemplateId)
+        : [];
+      // 親の予定工数 = 子タスク予定工数の合計。
+      const totalPlanned = items.reduce((sum, it) => sum + (it.planned_hours || 0), 0);
+      // 親の期日 = 子タスクの最も遅い期限（子が無ければ期日そのもの）。
+      let parentDeadline = newDueDate;
+      for (const it of items) {
+        const d = taskService.calculateDeadline(newDueDate, it.planned_hours);
+        if (normalizeDate(d) > normalizeDate(parentDeadline)) parentDeadline = d;
+      }
+
       const parentId = await taskService.addParentTask({
         name: newName,
-        deadline: calculatedDeadline,
-        planned_hours: newPlannedHours,
+        deadline: parentDeadline,
+        planned_hours: totalPlanned,
         actual_hours: 0,
         progress: 0
       });
 
-      if (parentId && selectedTemplateId) {
-        const items = await taskService.getTemplateItems(selectedTemplateId);
+      if (parentId && items.length) {
         const addPromises = items.map(item => taskService.addSubTask({
           parent_task_id: parentId,
           system: item.system,
@@ -204,7 +231,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
 
       setNewName('');
       setNewDueDate('');
-      setNewPlannedHours(0);
       setSelectedTemplateId('');
       setIsAdding(false);
     } catch (err) {
@@ -328,29 +354,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
           <p className="text-[#86868b] text-sm">案件と期限の管理</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex p-1 bg-gray-100 rounded-xl">
-            <button
-              onClick={() => settings && taskService.updateSettings(settings.id, { ...settings, ui_preferences: { ...settings.ui_preferences, view: 'grid' } })}
-              className={`p-1.5 rounded-lg transition-all ${settings?.ui_preferences.view === 'grid' ? 'bg-white text-[#007aff] shadow-sm' : 'text-[#86868b] hover:text-[#1d1d1f]'}`}
-              title="Grid View"
-            >
-              <LayoutGrid size={18} />
-            </button>
-            <button
-              onClick={() => settings && taskService.updateSettings(settings.id, { ...settings, ui_preferences: { ...settings.ui_preferences, view: 'table' } })}
-              className={`p-1.5 rounded-lg transition-all ${settings?.ui_preferences.view === 'table' ? 'bg-white text-[#007aff] shadow-sm' : 'text-[#86868b] hover:text-[#1d1d1f]'}`}
-              title="Table View"
-            >
-              <List size={18} />
-            </button>
-            <button
-              onClick={() => settings && taskService.updateSettings(settings.id, { ...settings, ui_preferences: { ...settings.ui_preferences, view: 'weekly' } })}
-              className={`p-1.5 rounded-lg transition-all ${settings?.ui_preferences.view === 'weekly' ? 'bg-white text-[#007aff] shadow-sm' : 'text-[#86868b] hover:text-[#1d1d1f]'}`}
-              title="週報モード"
-            >
-              <FileText size={18} />
-            </button>
-          </div>
+          {visibleViewButtons.length > 1 && (
+            <div className="flex p-1 bg-gray-100 rounded-xl">
+              {visibleViewButtons.map(b => (
+                <button
+                  key={b.view}
+                  onClick={() => setView(b.view)}
+                  className={`p-1.5 rounded-lg transition-all ${activeView === b.view ? 'bg-white text-[#007aff] shadow-sm' : 'text-[#86868b] hover:text-[#1d1d1f]'}`}
+                  title={b.title}
+                >
+                  {b.icon}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             onClick={() => setIsClearingAll(true)}
             disabled={parentTasks.length === 0}
@@ -392,17 +409,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                 onChange={(e) => setNewDueDate(e.target.value)}
                 className="mac-input w-full"
                 required
-              />
-            </div>
-            <div className="w-32">
-              <label className="block text-xs font-bold text-[#86868b] uppercase tracking-widest mb-2">予定工数(h)</label>
-              <input
-                type="number"
-                value={newPlannedHours}
-                onChange={(e) => setNewPlannedHours(parseFloat(e.target.value) || 0)}
-                className="mac-input w-full"
-                min="0"
-                step="0.5"
               />
             </div>
             <div className="w-64">
@@ -467,7 +473,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
         </div>
       </div>
 
-      {settings?.ui_preferences.view === 'weekly' ? (
+      {activeView === 'weekly' ? (
         <div className="mac-card border border-[#007aff]/40 lg:overflow-x-auto">
           {/* Weekly mode bar */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-black/5 bg-gradient-to-r from-[#007aff]/8 to-transparent">
@@ -664,9 +670,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                           </div>
                           {subs.map(t => {
                             const isLate = DELAYED_STATUSES.has(t.status);
+                            const isStartDelay = t.status === '着手遅れ';
+                            // フィルター切替時、対象の遅延タスク下に遅延理由行を表示する。
+                            const showDelayReason = !!t.delay_reason && (
+                              (filter === 'delayed' && (t.status === '遅れ' || t.status === '期限遅れ')) ||
+                              (filter === 'start_delayed' && isStartDelay)
+                            );
                             return (
+                              <React.Fragment key={t.id}>
                               <div
-                                key={t.id}
                                 title={t.remarks ? `備考: ${t.remarks}` : undefined}
                                 className={cn(
                                   "grid items-center gap-3 px-3.5 py-2 my-1 bg-white rounded-lg border border-black/5 text-[12.5px] transition-all hover:border-[#007aff] hover:translate-x-0.5 min-w-[880px]",
@@ -702,6 +714,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
                                   <span className="text-[#007aff] font-semibold">{t.actual_hours}h</span>
                                 </div>
                               </div>
+
+                              {showDelayReason && (
+                                <div
+                                  className={cn(
+                                    "flex items-center gap-2 px-3.5 py-2 mb-1.5 -mt-0.5 rounded-lg text-[12px] min-w-[880px]",
+                                    isStartDelay ? "bg-amber-50" : "bg-red-50"
+                                  )}
+                                >
+                                  <AlertTriangle
+                                    size={13}
+                                    className={cn("flex-shrink-0", isStartDelay ? "text-amber-500" : "text-red-500")}
+                                  />
+                                  <span
+                                    className={cn(
+                                      "px-1.5 py-0.5 rounded font-bold text-[10.5px] flex-shrink-0",
+                                      isStartDelay ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                                    )}
+                                  >
+                                    遅延理由
+                                  </span>
+                                  <span className={cn("flex-1 min-w-0 truncate", isStartDelay ? "text-amber-800" : "text-red-800")} title={t.delay_reason}>
+                                    {t.delay_reason}
+                                  </span>
+                                  {!!t.delay_impact_days && (
+                                    <span className={cn("font-bold whitespace-nowrap flex-shrink-0", isStartDelay ? "text-amber-600" : "text-red-600")}>
+                                      {t.delay_impact_days}日遅延
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                              </React.Fragment>
                             );
                           })}
                           <div className="flex justify-end pt-2">
@@ -732,7 +775,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ parentTasks, onSelectTask,
         </div>
       ) : (
       <DragDropContext onDragEnd={onDragEnd}>
-        {settings?.ui_preferences.view === 'table' ? (
+        {activeView === 'table' ? (
           <>
             {/* Desktop table view */}
             <div className="mac-card overflow-x-auto hidden lg:block">
