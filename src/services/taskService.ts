@@ -1,4 +1,18 @@
-import { db, auth } from '../cloudbase';
+import { 
+  collection, 
+  doc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  getDocs,
+  query, 
+  where, 
+  serverTimestamp,
+  getDocFromServer,
+  writeBatch
+} from 'firebase/firestore';
+import { db, auth } from '../firebase';
 import { ParentTask, SubTask, TaskTemplate, TemplateItem, UserSettings, DailyReportSnapshot } from '../types';
 
 export enum OperationType {
@@ -10,176 +24,48 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-interface DbErrorInfo {
+interface FirestoreErrorInfo {
   error: string;
-  code?: string | number;
-  requestId?: string;
   operationType: OperationType;
   path: string | null;
   authInfo: {
     userId: string | undefined;
     email: string | null | undefined;
-    loginType: string | null | undefined;
-    username: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
   }
 }
 
-/**
- * 任意の形のエラーから可読なメッセージを取り出す。
- * CloudBase(腾讯云开发) の SDK は Error インスタンスではなくプレーンオブジェクト
- * （例: { code: 'DATABASE_PERMISSION_DENIED', message: '...', requestId: '...' }）を
- * throw するため、`String(error)` では "[object Object]" になってしまう。
- * code / message / errMsg などを優先的に抽出し、最後の手段として JSON 化する。
- */
-function extractErrorMessage(error: unknown): { message: string; code?: string | number; requestId?: string } {
-  if (error instanceof Error) return { message: error.message };
-  if (typeof error === 'string') return { message: error };
-  if (error && typeof error === 'object') {
-    const e = error as Record<string, any>;
-    const code = e.code ?? e.error_code ?? e.errCode ?? e.status;
-    const requestId = e.requestId ?? e.request_id;
-    const message =
-      e.message ??
-      e.errMsg ??
-      e.error_msg ??
-      e.error_description ??
-      e.msg ??
-      e.error ??
-      // 既知のフィールドが無ければ全体を JSON 化（[object Object] を避ける）
-      (() => {
-        try {
-          return JSON.stringify(e);
-        } catch {
-          return Object.prototype.toString.call(e);
-        }
-      })();
-    return { message: String(message), code, requestId };
-  }
-  return { message: String(error) };
-}
-
-function handleDbError(error: unknown, operationType: OperationType, path: string | null, shouldThrow = true) {
-  const { message, code, requestId } = extractErrorMessage(error);
-  const errInfo: DbErrorInfo = {
-    error: message,
-    ...(code !== undefined ? { code } : {}),
-    ...(requestId !== undefined ? { requestId } : {}),
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null, shouldThrow = true) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
-      loginType: auth.currentUser?.loginType,
-      username: auth.currentUser?.username,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
     },
     operationType,
     path
   }
-  console.error('CloudBase DB Error: ', JSON.stringify(errInfo), '\nraw error:', error);
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
   if (shouldThrow) {
     throw new Error(JSON.stringify(errInfo));
   }
-}
-
-// ============================================================
-// CloudBase データベースのヘルパー
-//  - Firestore の doc.id は CloudBase では `_id`。読み出し時に id へマップする。
-//  - get() の既定取得件数は 20 件のため limit を引き上げる。
-// ============================================================
-const READ_LIMIT = 1000;
-// realtime watch が使えない環境向けのポーリング間隔（watch 成功時は停止する）。
-const POLL_INTERVAL_MS = 5000;
-
-/** CloudBase ドキュメント（_id）をアプリのモデル（id）へ変換する。 */
-function mapDoc<T>(d: any): T {
-  const { _id, ...rest } = d || {};
-  return { ...rest, id: _id } as T;
-}
-
-/** order 昇順 → created_at 昇順の比較関数（既存の並び順を踏襲）。 */
-function orderSort(a: any, b: any): number {
-  return (a.order ?? 0) - (b.order ?? 0) ||
-    new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-}
-
-/** owner_id（＋追加条件）で所有ドキュメントを取得する。 */
-async function getOwnedDocs(collName: string, extra: Record<string, any> = {}): Promise<any[]> {
-  const owner = auth.currentUser?.uid;
-  const res = await db.collection(collName).where({ owner_id: owner, ...extra }).limit(READ_LIMIT).get();
-  return (res.data as any[]) || [];
-}
-
-/** owner_id（＋追加条件）の所有ドキュメントを監視する。
- *  - まず get() で即時ロードして UI へ反映する。
- *  - 安全網として常時ポーリングし、watch() が onChange を返した時点で停止する
- *    （realtime が動けば watch、動かなければポーリングで更新を拾う）。
- *    安全规则が doc を参照すると watch は INIT_WATCH_FAIL になり onError すら
- *    呼ばれないことがあるため、onError 任せにせず常時ポーリングで担保する。
- *  - 同一内容なら callback を呼ばず、無駄な再描画／ちらつきを防ぐ。
- */
-function watchOwnedDocs<T>(
-  collName: string,
-  extra: Record<string, any>,
-  callback: (rows: T[]) => void,
-  options: { sort?: boolean } = {},
-): () => void {
-  const owner = auth.currentUser?.uid;
-  if (!owner) return () => {};
-
-  let closed = false;
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-  let lastJson = '';
-
-  const stopPolling = () => {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
-  };
-
-  const emit = (docs: any[]) => {
-    const rows = (docs || []).map((d) => mapDoc<T>(d));
-    if (options.sort !== false) rows.sort(orderSort);
-    const json = JSON.stringify(rows);
-    if (json === lastJson) return; // 変化が無ければ再描画しない
-    lastJson = json;
-    if (!closed) callback(rows);
-  };
-
-  const load = async () => {
-    try {
-      emit(await getOwnedDocs(collName, extra));
-    } catch (err) {
-      handleDbError(err, OperationType.LIST, collName, false);
-    }
-  };
-
-  // 即時ロード + 安全網のポーリング（watch 成功で停止）。
-  load();
-  pollTimer = setInterval(load, POLL_INTERVAL_MS);
-
-  let watcher: { close: () => void } | null = null;
-  try {
-    watcher = db.collection(collName)
-      .where({ owner_id: owner, ...extra })
-      .limit(READ_LIMIT)
-      .watch({
-        onChange: (snapshot: any) => {
-          stopPolling(); // realtime が動作 → ポーリング不要
-          emit((snapshot?.docs as any[]) || []);
-        },
-        onError: (err: any) => {
-          // watch 不可。ポーリングは起動済みなので更新は担保される。
-          handleDbError(err, OperationType.LIST, collName, false);
-        },
-      });
-  } catch (err) {
-    handleDbError(err, OperationType.LIST, collName, false);
-  }
-
-  return () => {
-    closed = true;
-    stopPolling();
-    try { watcher?.close(); } catch { /* noop */ }
-  };
 }
 
 
@@ -468,9 +354,11 @@ export const taskService = {
   async testConnection() {
     if (this.isGuest) return;
     try {
-      await db.collection('parent_tasks').limit(1).get();
+      await getDocFromServer(doc(db, 'test', 'connection'));
     } catch (error) {
-      console.error('CloudBase connection check failed. Please verify TCB_ENV_ID and login state.', error);
+      if(error instanceof Error && error.message.includes('the client is offline')) {
+        console.error("Please check your Firebase configuration. ");
+      }
     }
   },
 
@@ -485,10 +373,14 @@ export const taskService = {
     const collections = ['parent_tasks', 'sub_tasks', 'task_templates', 'template_items', 'settings'];
     for (const colName of collections) {
       try {
-        const res = await db.collection(colName).where({ owner_id: userId }).limit(READ_LIMIT).get();
-        const docs = (res.data as any[]) || [];
-        await Promise.all(docs.map((d) => db.collection(colName).doc(d._id).remove()));
-        console.log(`Cleaned up ${docs.length} documents from ${colName}`);
+        const q = query(collection(db, colName), where('owner_id', '==', userId));
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.docs.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+        console.log(`Cleaned up ${snapshot.size} documents from ${colName}`);
       } catch (error) {
         console.error(`Error cleaning up ${colName}:`, error);
       }
@@ -506,7 +398,18 @@ export const taskService = {
       guestObservers.add(update);
       return () => guestObservers.delete(update);
     }
-    return watchOwnedDocs<ParentTask>('parent_tasks', { is_hidden: showHidden }, callback);
+    if (!auth.currentUser) return () => {};
+    const q = query(
+      collection(db, 'parent_tasks'),
+      where('owner_id', '==', auth.currentUser.uid),
+      where('is_hidden', '==', showHidden)
+    );
+    return onSnapshot(q, (snapshot) => {
+      const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ParentTask));
+      // Sort by order if available, otherwise by created_at
+      tasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      callback(tasks);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'parent_tasks', false));
   },
 
   async addParentTask(task: Omit<ParentTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>, order?: number) {
@@ -529,9 +432,14 @@ export const taskService = {
     try {
       // order が渡されればそれを使う。無い場合のみ件数を読んで採番する。
       // （大量インポート時に 1 件ごと全件読み込みすると O(n^2) になるため）
-      const computedOrder = order ?? (await getOwnedDocs(path)).length;
+      let computedOrder = order;
+      if (computedOrder === undefined) {
+        const q = query(collection(db, path), where('owner_id', '==', auth.currentUser.uid));
+        const snapshot = await getDocs(q);
+        computedOrder = snapshot.size;
+      }
 
-      const res = await db.collection(path).add({
+      const docRef = await addDoc(collection(db, path), {
         ...task,
         is_hidden: false,
         order: computedOrder,
@@ -539,9 +447,9 @@ export const taskService = {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
-      return res.id;
+      return docRef.id;
     } catch (error) {
-      handleDbError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, path);
     }
   },
 
@@ -560,12 +468,12 @@ export const taskService = {
     }
     const path = `parent_tasks/${id}`;
     try {
-      await db.collection('parent_tasks').doc(id).update({
+      await updateDoc(doc(db, 'parent_tasks', id), {
         ...task,
         updated_at: new Date().toISOString()
       });
     } catch (error) {
-      handleDbError(error, OperationType.UPDATE, path);
+      handleFirestoreError(error, OperationType.UPDATE, path);
     }
   },
 
@@ -579,13 +487,19 @@ export const taskService = {
     const path = `parent_tasks/${id}`;
     try {
       // Delete associated sub-tasks first
-      const subTasks = await getOwnedDocs('sub_tasks', { parent_task_id: id });
-      await Promise.all(subTasks.map((d) => db.collection('sub_tasks').doc(d._id).remove()));
+      const q = query(
+        collection(db, 'sub_tasks'),
+        where('parent_task_id', '==', id),
+        where('owner_id', '==', auth.currentUser?.uid)
+      );
+      const subTasksSnapshot = await getDocs(q);
+      const deletePromises = subTasksSnapshot.docs.map(d => deleteDoc(d.ref));
+      await Promise.all(deletePromises);
 
       // Delete parent task
-      await db.collection('parent_tasks').doc(id).remove();
+      await deleteDoc(doc(db, 'parent_tasks', id));
     } catch (error) {
-      handleDbError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   },
 
@@ -600,16 +514,18 @@ export const taskService = {
     if (!auth.currentUser) throw new Error('User not authenticated');
     try {
       // Delete all parent tasks
-      const parents = await getOwnedDocs('parent_tasks');
-      const pDeletes = parents.map((d) => db.collection('parent_tasks').doc(d._id).remove());
-
+      const pq = query(collection(db, 'parent_tasks'), where('owner_id', '==', auth.currentUser.uid));
+      const pSnapshot = await getDocs(pq);
+      const pDeletes = pSnapshot.docs.map(d => deleteDoc(d.ref));
+      
       // Delete all sub tasks
-      const subs = await getOwnedDocs('sub_tasks');
-      const sDeletes = subs.map((d) => db.collection('sub_tasks').doc(d._id).remove());
+      const sq = query(collection(db, 'sub_tasks'), where('owner_id', '==', auth.currentUser.uid));
+      const sSnapshot = await getDocs(sq);
+      const sDeletes = sSnapshot.docs.map(d => deleteDoc(d.ref));
 
       await Promise.all([...pDeletes, ...sDeletes]);
     } catch (error) {
-      handleDbError(error, OperationType.DELETE, 'all_data');
+      handleFirestoreError(error, OperationType.DELETE, 'all_data');
     }
   },
 
@@ -623,7 +539,16 @@ export const taskService = {
       guestObservers.add(update);
       return () => guestObservers.delete(update);
     }
-    return watchOwnedDocs<SubTask>('sub_tasks', {}, callback);
+    if (!auth.currentUser) return () => {};
+    const q = query(
+      collection(db, 'sub_tasks'),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
+    return onSnapshot(q, (snapshot) => {
+      const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SubTask));
+      tasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      callback(tasks);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'sub_tasks', false));
   },
 
   subscribeSubTasks(parentTaskId: string, callback: (tasks: SubTask[]) => void) {
@@ -636,7 +561,17 @@ export const taskService = {
       guestObservers.add(update);
       return () => guestObservers.delete(update);
     }
-    return watchOwnedDocs<SubTask>('sub_tasks', { parent_task_id: parentTaskId }, callback);
+    if (!auth.currentUser) return () => {};
+    const q = query(
+      collection(db, 'sub_tasks'), 
+      where('parent_task_id', '==', parentTaskId),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
+    return onSnapshot(q, (snapshot) => {
+      const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SubTask));
+      tasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      callback(tasks);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'sub_tasks', false));
   },
 
   async addSubTask(task: Omit<SubTask, 'id' | 'created_at' | 'updated_at' | 'owner_id'>, order?: number) {
@@ -657,10 +592,15 @@ export const taskService = {
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'sub_tasks';
     try {
-      // order が渡されればそれを使い、無い場合のみ件数を読んで採番する。
-      const computedOrder = order ?? (await getOwnedDocs(path, { parent_task_id: task.parent_task_id })).length;
+      // order が渡されればそれを使い、無い場合のみ件数を読んで採番する（O(n^2) 回避）。
+      let computedOrder = order;
+      if (computedOrder === undefined) {
+        const q = query(collection(db, path), where('parent_task_id', '==', task.parent_task_id), where('owner_id', '==', auth.currentUser.uid));
+        const snapshot = await getDocs(q);
+        computedOrder = snapshot.size;
+      }
 
-      const res = await db.collection(path).add({
+      const docRef = await addDoc(collection(db, path), {
         ...task,
         is_in_report: false,
         order: computedOrder,
@@ -668,9 +608,9 @@ export const taskService = {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
-      return res.id;
+      return docRef.id;
     } catch (error) {
-      handleDbError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, path);
     }
   },
 
@@ -715,12 +655,12 @@ export const taskService = {
     }
     const path = `sub_tasks/${id}`;
     try {
-      await db.collection('sub_tasks').doc(id).update({
+      await updateDoc(doc(db, 'sub_tasks', id), {
         ...task,
         updated_at: new Date().toISOString()
       });
     } catch (error) {
-      handleDbError(error, OperationType.UPDATE, path);
+      handleFirestoreError(error, OperationType.UPDATE, path);
     }
   },
 
@@ -732,9 +672,9 @@ export const taskService = {
     }
     const path = `sub_tasks/${id}`;
     try {
-      await db.collection('sub_tasks').doc(id).remove();
+      await deleteDoc(doc(db, 'sub_tasks', id));
     } catch (error) {
-      handleDbError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   },
 
@@ -748,7 +688,16 @@ export const taskService = {
       guestObservers.add(update);
       return () => guestObservers.delete(update);
     }
-    return watchOwnedDocs<TaskTemplate>('task_templates', {}, callback);
+    if (!auth.currentUser) return () => {};
+    const q = query(
+      collection(db, 'task_templates'),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
+    return onSnapshot(q, (snapshot) => {
+      const templates = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaskTemplate));
+      templates.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      callback(templates);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'task_templates', false));
   },
 
   async addTaskTemplate(template: Omit<TaskTemplate, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
@@ -768,19 +717,20 @@ export const taskService = {
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'task_templates';
     try {
-      const existing = await getOwnedDocs(path);
-      const order = existing.length;
+      const q = query(collection(db, path), where('owner_id', '==', auth.currentUser.uid));
+      const snapshot = await getDocs(q);
+      const order = snapshot.size;
 
-      const res = await db.collection(path).add({
+      const docRef = await addDoc(collection(db, path), {
         ...template,
         order,
         owner_id: auth.currentUser.uid,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
-      return res.id;
+      return docRef.id;
     } catch (error) {
-      handleDbError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, path);
     }
   },
 
@@ -799,12 +749,12 @@ export const taskService = {
     }
     const path = `task_templates/${id}`;
     try {
-      await db.collection('task_templates').doc(id).update({
+      await updateDoc(doc(db, 'task_templates', id), {
         ...updates,
         updated_at: new Date().toISOString()
       });
     } catch (error) {
-      handleDbError(error, OperationType.UPDATE, path);
+      handleFirestoreError(error, OperationType.UPDATE, path);
     }
   },
 
@@ -818,13 +768,19 @@ export const taskService = {
     const path = `task_templates/${id}`;
     try {
       // Delete associated template items first
-      const items = await getOwnedDocs('template_items', { template_id: id });
-      await Promise.all(items.map((d) => db.collection('template_items').doc(d._id).remove()));
+      const q = query(
+        collection(db, 'template_items'),
+        where('template_id', '==', id),
+        where('owner_id', '==', auth.currentUser?.uid)
+      );
+      const itemsSnapshot = await getDocs(q);
+      const deletePromises = itemsSnapshot.docs.map(d => deleteDoc(d.ref));
+      await Promise.all(deletePromises);
 
       // Delete template
-      await db.collection('task_templates').doc(id).remove();
+      await deleteDoc(doc(db, 'task_templates', id));
     } catch (error) {
-      handleDbError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   },
 
@@ -839,7 +795,17 @@ export const taskService = {
       guestObservers.add(update);
       return () => guestObservers.delete(update);
     }
-    return watchOwnedDocs<TemplateItem>('template_items', { template_id: templateId }, callback);
+    if (!auth.currentUser) return () => {};
+    const q = query(
+      collection(db, 'template_items'),
+      where('template_id', '==', templateId),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
+    return onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TemplateItem));
+      items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      callback(items);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'template_items', false));
   },
 
   async addTemplateItem(item: Omit<TemplateItem, 'id' | 'created_at' | 'updated_at' | 'owner_id'>) {
@@ -859,19 +825,20 @@ export const taskService = {
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'template_items';
     try {
-      const existing = await getOwnedDocs(path, { template_id: item.template_id });
-      const order = existing.length;
+      const q = query(collection(db, path), where('template_id', '==', item.template_id), where('owner_id', '==', auth.currentUser.uid));
+      const snapshot = await getDocs(q);
+      const order = snapshot.size;
 
-      const res = await db.collection(path).add({
+      const docRef = await addDoc(collection(db, path), {
         ...item,
         order,
         owner_id: auth.currentUser.uid,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       });
-      return res.id;
+      return docRef.id;
     } catch (error) {
-      handleDbError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, path);
     }
   },
 
@@ -890,12 +857,12 @@ export const taskService = {
     }
     const path = `template_items/${id}`;
     try {
-      await db.collection('template_items').doc(id).update({
+      await updateDoc(doc(db, 'template_items', id), {
         ...updates,
         updated_at: new Date().toISOString()
       });
     } catch (error) {
-      handleDbError(error, OperationType.UPDATE, path);
+      handleFirestoreError(error, OperationType.UPDATE, path);
     }
   },
 
@@ -907,9 +874,9 @@ export const taskService = {
     }
     const path = `template_items/${id}`;
     try {
-      await db.collection('template_items').doc(id).remove();
+      await deleteDoc(doc(db, 'template_items', id));
     } catch (error) {
-      handleDbError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   },
 
@@ -918,8 +885,13 @@ export const taskService = {
       return guestStore.template_items.filter(t => t.template_id === templateId);
     }
     if (!auth.currentUser) throw new Error('User not authenticated');
-    const items = await getOwnedDocs('template_items', { template_id: templateId });
-    return items.map((d) => mapDoc<TemplateItem>(d));
+    const q = query(
+      collection(db, 'template_items'),
+      where('template_id', '==', templateId),
+      where('owner_id', '==', auth.currentUser.uid)
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TemplateItem));
   },
 
   // Settings
@@ -932,13 +904,19 @@ export const taskService = {
       guestObservers.add(update);
       return () => guestObservers.delete(update);
     }
-    // get + watch（失敗時ポーリング）の共通ロジックを再利用。settings は単一ドキュメント。
-    return watchOwnedDocs<UserSettings>(
-      'settings',
-      {},
-      (rows) => callback(rows.length > 0 ? rows[0] : null),
-      { sort: false },
+    if (!auth.currentUser) return () => {};
+    const q = query(
+      collection(db, 'settings'),
+      where('owner_id', '==', auth.currentUser.uid)
     );
+    return onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        callback(null);
+      } else {
+        const doc = snapshot.docs[0];
+        callback({ id: doc.id, ...doc.data() } as UserSettings);
+      }
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'settings', false));
   },
 
   async updateSettings(id: string | undefined, settings: Partial<UserSettings>) {
@@ -962,23 +940,23 @@ export const taskService = {
     if (id) {
       const path = `settings/${id}`;
       try {
-        await db.collection('settings').doc(id).update({
+        await updateDoc(doc(db, 'settings', id), {
           ...settings,
           updated_at: new Date().toISOString()
         });
       } catch (error) {
-        handleDbError(error, OperationType.UPDATE, path);
+        handleFirestoreError(error, OperationType.UPDATE, path);
       }
     } else {
       const path = 'settings';
       try {
-        await db.collection(path).add({
+        await addDoc(collection(db, path), {
           ...settings,
           owner_id: auth.currentUser.uid,
           updated_at: new Date().toISOString()
         });
       } catch (error) {
-        handleDbError(error, OperationType.CREATE, path);
+        handleFirestoreError(error, OperationType.CREATE, path);
       }
     }
   },
@@ -1008,25 +986,30 @@ export const taskService = {
     const path = 'daily_reports';
     try {
       // Try update existing report for the same date first
-      const existing = await getOwnedDocs(path, { date: snapshot.date });
+      const q = query(
+        collection(db, path),
+        where('owner_id', '==', auth.currentUser.uid),
+        where('date', '==', snapshot.date)
+      );
+      const existing = await getDocs(q);
       const now = new Date().toISOString();
-      if (existing.length > 0) {
-        const docId = existing[0]._id;
-        await db.collection(path).doc(docId).update({
+      if (!existing.empty) {
+        const docRef = existing.docs[0].ref;
+        await updateDoc(docRef, {
           ...snapshot,
           updated_at: now,
         });
-        return docId;
+        return existing.docs[0].id;
       }
-      const res = await db.collection(path).add({
+      const newDoc = await addDoc(collection(db, path), {
         ...snapshot,
         owner_id: auth.currentUser.uid,
         created_at: now,
         updated_at: now,
       });
-      return res.id;
+      return newDoc.id;
     } catch (error) {
-      handleDbError(error, OperationType.CREATE, path);
+      handleFirestoreError(error, OperationType.CREATE, path);
       throw error;
     }
   },
@@ -1043,11 +1026,17 @@ export const taskService = {
     if (!auth.currentUser) return null;
     const path = 'daily_reports';
     try {
-      const docs = await getOwnedDocs(path, { date });
-      if (docs.length === 0) return null;
-      return mapDoc<DailyReportSnapshot>(docs[0]);
+      const q = query(
+        collection(db, path),
+        where('owner_id', '==', auth.currentUser.uid),
+        where('date', '==', date)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) return null;
+      const doc = snap.docs[0];
+      return { id: doc.id, ...doc.data() } as DailyReportSnapshot;
     } catch (error) {
-      handleDbError(error, OperationType.GET, path, false);
+      handleFirestoreError(error, OperationType.GET, path, false);
       return null;
     }
   },
@@ -1062,10 +1051,17 @@ export const taskService = {
     if (!auth.currentUser) throw new Error('User not authenticated');
     const path = 'daily_reports';
     try {
-      const docs = await getOwnedDocs(path, { date });
-      await Promise.all(docs.map((d) => db.collection(path).doc(d._id).remove()));
+      const q = query(
+        collection(db, path),
+        where('owner_id', '==', auth.currentUser.uid),
+        where('date', '==', date)
+      );
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        await deleteDoc(d.ref);
+      }
     } catch (error) {
-      handleDbError(error, OperationType.DELETE, path);
+      handleFirestoreError(error, OperationType.DELETE, path);
     }
   }
 };

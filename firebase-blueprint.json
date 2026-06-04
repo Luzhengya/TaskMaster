@@ -1,0 +1,128 @@
+{
+  "entities": {
+    "parent_tasks": {
+      "title": "Parent Task",
+      "description": "Main project or case containing sub-tasks",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Case name" },
+        "deadline": { "type": "string", "format": "date", "description": "Main deadline (Honban-bi)" },
+        "due_date": { "type": "string", "format": "date" },
+        "planned_hours": { "type": "number", "description": "Total planned hours" },
+        "actual_hours": { "type": "number" },
+        "progress": { "type": "number" },
+        "is_hidden": { "type": "boolean" },
+        "order": { "type": "integer" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "owner_id": { "type": "string", "description": "User ID of the owner" }
+      },
+      "required": ["name", "deadline", "planned_hours", "owner_id"]
+    },
+    "sub_tasks": {
+      "title": "Sub Task",
+      "description": "Individual task item within a parent task",
+      "type": "object",
+      "properties": {
+        "parent_task_id": { "type": "string", "description": "Reference to parent task" },
+        "system": { "type": "string" },
+        "month": { "type": "string" },
+        "daily_report_date": { "type": "string", "format": "date" },
+        "start_date": { "type": "string", "format": "date" },
+        "due_date": { "type": "string", "format": "date" },
+        "final_deadline": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["遅れ", "済", "進行中", "未着手", "保留", "着手遅れ", "期限遅れ", "着着手遅れ"] },
+        "task_name": { "type": "string" },
+        "planned_hours": { "type": "number" },
+        "actual_hours": { "type": "number" },
+        "priority": { "type": "string", "enum": ["A", "B", "C"] },
+        "remarks": { "type": "string" },
+        "delay_reason": { "type": "string" },
+        "impact_assessment": { "type": "string", "enum": ["小", "中", "大"] },
+        "is_in_report": { "type": "boolean" },
+        "order": { "type": "integer" },
+        "weekday": { "type": "string" },
+        "week": { "type": "string" },
+        "week_number": { "type": "integer" },
+        "flag": { "type": "integer" },
+        "icon_data": { "type": "string", "description": "SVG data or lucide-react icon name" },
+        "owner_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["parent_task_id", "task_name", "owner_id"]
+    },
+    "task_templates": {
+      "title": "Task Template",
+      "description": "Reusable set of sub-tasks",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "order": { "type": "integer" },
+        "owner_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "owner_id"]
+    },
+    "template_items": {
+      "title": "Template Item",
+      "description": "Individual task within a template",
+      "type": "object",
+      "properties": {
+        "template_id": { "type": "string" },
+        "system": { "type": "string" },
+        "task_name": { "type": "string" },
+        "status": { "type": "string" },
+        "planned_hours": { "type": "number" },
+        "priority": { "type": "string" },
+        "remarks": { "type": "string" },
+        "order": { "type": "integer" },
+        "owner_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["template_id", "task_name", "owner_id"]
+    },
+    "settings": {
+      "title": "System Settings",
+      "description": "User preferences and AI config",
+      "type": "object",
+      "properties": {
+        "owner_id": { "type": "string" },
+        "ai_models": { "type": "array", "description": "AI model configs" },
+        "ui_preferences": { "type": "object", "description": "View / theme / opacity / font" },
+        "notification_rules": { "type": "array", "description": "Notification rule list" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["owner_id"]
+    },
+    "daily_reports": {
+      "title": "Daily Report Snapshot",
+      "description": "Per-day snapshot of report tasks with notes and AI summary",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string", "format": "date", "description": "YYYY-MM-DD" },
+        "notes": { "type": "string" },
+        "ai_summary": { "type": "string" },
+        "tasks_snapshot": { "type": "array", "description": "Snapshot of that day's is_in_report sub-tasks" },
+        "total_tasks": { "type": "integer" },
+        "total_planned": { "type": "number" },
+        "total_actual": { "type": "number" },
+        "delayed_count": { "type": "integer" },
+        "owner_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "owner_id"]
+    }
+  },
+  "firestore": {
+    "/parent_tasks/{taskId}": { "schema": "parent_tasks", "description": "Main tasks" },
+    "/sub_tasks/{subTaskId}": { "schema": "sub_tasks", "description": "Sub tasks" },
+    "/task_templates/{templateId}": { "schema": "task_templates", "description": "Templates" },
+    "/template_items/{itemId}": { "schema": "template_items", "description": "Template details" },
+    "/settings/{settingId}": { "schema": "settings", "description": "User settings" },
+    "/daily_reports/{reportId}": { "schema": "daily_reports", "description": "Daily report snapshots" }
+  }
+}

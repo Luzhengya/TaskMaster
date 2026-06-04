@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Owner isolation
+    //  CloudBase 期间数据集合改为「所有者隔离」模型（auth.uid == doc.owner_id），
+    //  并移除了基于固定邮箱的管理员后门。迁回 Firebase 后沿用同一模型：
+    //  每个用户仅能读写自己 owner_id 名下的文档。
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    // 既存ドキュメントの所有者か（read / update / delete 用）。
+    function ownsExisting() {
+      return isAuthenticated() && resource.data.owner_id == request.auth.uid;
+    }
+    // 書き込もうとしているドキュメントの owner_id が自分か（create / update 用）。
+    function ownsIncoming() {
+      return isAuthenticated() && request.resource.data.owner_id == request.auth.uid;
+    }
+
+    // 全コレクション共通の所有者隔離ルール。
+    match /{collection}/{docId} {
+      allow read: if ownsExisting();
+      allow create: if ownsIncoming();
+      allow update: if ownsExisting() && ownsIncoming();
+      allow delete: if ownsExisting();
+    }
+  }
+}

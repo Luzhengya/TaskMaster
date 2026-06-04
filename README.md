@@ -4,17 +4,17 @@ TaskMaster 是一个面向个人与小团队的任务管理应用，支持任务
 
 ## 主要功能
 
-- 邮箱注册/登录（邮箱验证码）与访客模式（支持本地试用）
+- Google / 邮箱注册登录与访客模式（支持本地试用）
 - 案件/父任务与子任务管理
 - 任务模板与模板子任务管理
 - 历史记录查看与任务回溯
-- Excel 导入与周报导出（`.xlsx`）
+- Excel 导入（`.xlsx`）
 - 基于 Gemini 的 AI 内容处理（需配置密钥）
 
 ## 技术栈
 
 - React 19 + TypeScript + Vite 6
-- 腾讯云开发 CloudBase（身份认证、云数据库）
+- Firebase（Authentication 身份认证、Cloud Firestore 数据库）
 - Express 开发服务器
 - [exceljs](https://www.npmjs.com/package/exceljs) 处理 Excel 读写
 
@@ -34,9 +34,10 @@ TaskMaster 是一个面向个人与小团队的任务管理应用，支持任务
    | --- | --- |
    | `GEMINI_API_KEY` | Gemini API 密钥，用于 AI 功能 |
    | `APP_URL` | 应用访问地址（自引用链接等） |
-   | `TCB_ENV_ID` | 腾讯云开发 CloudBase 环境 ID（认证与数据库必需） |
 
-3. 配置 CloudBase：在云开发控制台开通环境，开启「邮箱登录」与「匿名登录」，创建集合并配置安全规则（详见 `cloudbase/README.md`），将环境 ID 填入 `.env.local` 的 `TCB_ENV_ID`。
+   > Firebase 配置位于 `firebase-applet-config.json`（项目 ID、App ID、API Key 等），无需写入环境变量。
+
+3. 配置 Firebase：在 Firebase 控制台启用 Authentication（Google 登录、邮箱/密码登录，可选匿名登录），创建 Cloud Firestore 数据库并部署 `firestore.rules` 安全规则。将本地访问地址（如 `localhost`）加入「Authentication > Settings > Authorized domains」。
 
 4. 启动开发环境：
 

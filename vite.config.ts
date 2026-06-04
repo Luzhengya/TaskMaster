@@ -9,7 +9,6 @@ export default defineConfig(({mode}) => {
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.TCB_ENV_ID': JSON.stringify(env.TCB_ENV_ID),
     },
     resolve: {
       alias: {
@@ -20,10 +19,6 @@ export default defineConfig(({mode}) => {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: false,
-      // CloudBase の「Web 安全域名」対策で托管ドメインを hosts 経由でローカルに向けて
-      // アクセスするため、Vite の host チェックで弾かれないよう托管ドメインを許可する。
-      // （DEV_LOCAL_HTTPS.md 参照）
-      allowedHosts: ['.tcloudbaseapp.com', '.app.tcloudbase.com'],
     },
   };
 });

@@ -1,5 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { auth } from './cloudbase';
+import { auth } from './firebase';
+import { waitForAuthRedirectResult } from './authInit';
+import { 
+  onAuthStateChanged, 
+  signInWithPopup, 
+  signInWithRedirect,
+  GoogleAuthProvider, 
+  OAuthProvider, 
+  signOut,
+  signInAnonymously,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  sendEmailVerification
+} from 'firebase/auth';
 import { Layout } from './components/Layout';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
@@ -14,81 +28,125 @@ import { taskService } from './services/taskService';
 import { ParentTask, UserSettings } from './types';
 import { Loader2 } from 'lucide-react';
 
-/** CloudBase 認証エラーを、ログインフォームに表示する日本語メッセージへ変換する。 */
-function authErrorMessage(error: any): string {
-  const code: string | undefined = error?.code;
-  const raw: string | undefined = error?.message;
+/** Map Firebase auth error codes to Japanese messages shown inline on the login form. */
+function emailAuthErrorMessage(code: string): string {
   switch (code) {
-    case 'invalid_password':
-    case 'password_not_match':
-    case 'user_not_exist':
-    case 'user_not_found':
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
       return 'メールアドレスまたはパスワードが正しくありません。';
-    case 'user_already_exist':
-    case 'email_already_exist':
+    case 'auth/email-already-in-use':
       return 'このメールアドレスは既に使用されています。';
-    case 'invalid_param':
-    case 'invalid_email':
+    case 'auth/weak-password':
+      return 'パスワードが弱すぎます。8文字以上で設定してください。';
+    case 'auth/invalid-email':
       return 'メールアドレスの形式が正しくありません。';
-    case 'verification_code_error':
-    case 'invalid_verification_code':
-      return '認証コードが正しくありません。';
-    case 'too_many_requests':
+    case 'auth/too-many-requests':
       return '試行回数が多すぎます。しばらく時間をおいてから再度お試しください。';
-    case 'network_error':
+    case 'auth/operation-not-allowed':
+      return 'ID/パスワードによるサインインが有効化されていません。管理者にお問い合わせください。';
+    case 'auth/network-request-failed':
       return 'ネットワーク接続に失敗しました。接続を確認してください。';
     default:
-      return raw || 'エラーが発生しました。しばらくしてから再度お試しください。';
+      return 'エラーが発生しました。しばらくしてから再度お試しください。';
   }
 }
+
+function createGoogleAuthProvider(): GoogleAuthProvider {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
+function createMicrosoftAuthProvider(): OAuthProvider {
+  const provider = new OAuthProvider('microsoft.com');
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return provider;
+}
+
+const POPUP_FALLBACK_TO_REDIRECT_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/internal-error',
+  'auth/web-storage-unsupported',
+]);
+
+/** Set to `true` when Microsoft sign-in should be offered again. */
+const MICROSOFT_SIGN_IN_ENABLED = false;
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [isGuest, setIsGuest] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isGuestLoading, setIsGuestLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedParentTask, setSelectedParentTask] = useState<ParentTask | null>(null);
   const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
   const [parentTasks, setParentTasks] = useState<ParentTask[]>([]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
+  const loginInFlightRef = useRef(false);
 
-  // メール認証コードの検証情報を一時保持（送信 → 入力 の2ステップ間で引き継ぐ）
-  const signupVerifyRef = useRef<{ email: string; verificationId: string } | null>(null);
-  const resetVerifyRef = useRef<{ email: string; verificationId: string } | null>(null);
+  const handleAuthError = useCallback((error: any) => {
+    console.error('Auth error details:', error);
 
-  // 現在のログイン状態を React state に反映する
-  const applyAuthState = useCallback(() => {
-    const u = auth.currentUser;
-    if (u) {
-      setUser(u);
-      const anon = u.loginType === 'ANONYMOUS';
-      setIsGuest(anon);
-      taskService.isGuest = anon;
+    const currentDomain = window.location.hostname;
+
+    if (error.code === 'auth/popup-blocked') {
+      alert('ポップアップがブロックされました。ブラウザの設定でポップアップを許可してください。\n(Popup was blocked. Please allow popups for this site.)');
+    } else if (error.code === 'auth/unauthorized-domain') {
+      alert(`このドメイン(${currentDomain})はFirebaseで許可されていません。Firebase Consoleの「Authentication」>「Settings」>「Authorized domains」に現在のURLを追加してください（例: localhost、127.0.0.1 は別々に追加）。\n(This domain is not authorized. Add ${currentDomain} to Authorized domains in Firebase Console. Note: localhost and 127.0.0.1 are separate entries.)`);
+    } else if (error.code === 'auth/operation-not-allowed') {
+      alert('Firebase コンソールで「Authentication」>「Sign-in method」から Google ログインを有効にしてください。\n(Enable Google as a sign-in provider in Firebase Console > Authentication > Sign-in method.)');
+    } else if (error.code === 'auth/admin-restricted-operation') {
+      console.log('Anonymous Auth is disabled. Using local guest mode.');
+    } else if (error.code === 'auth/network-request-failed') {
+      console.warn('Network request failed. Falling back to local guest mode.');
+      alert('ネットワーク接続に失敗しました。オフラインか、Firebaseへの接続が遮断されている可能性があります。ゲストモードで続行できます。\n(Network request failed. You might be offline or the connection to Firebase is blocked. You can continue in Guest Mode.)');
+    } else if (error.code === 'auth/popup-closed-by-user') {
+      console.log('User closed the login popup');
     } else {
-      setUser(null);
-      // ローカルゲストモード（匿名ログイン未開放時のフォールバック）は保持する
+      alert(`ログインに失敗しました: ${error.message || 'Unknown error'}\n(Error Code: ${error.code})`);
     }
-    setIsAuthReady(true);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    applyAuthState();
-    const { data } = auth.onAuthStateChange(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    (async () => {
+      try {
+        await waitForAuthRedirectResult();
+      } catch (error: any) {
+        console.error('getRedirectResult failed:', error);
+        if (!cancelled) handleAuthError(error);
+      }
+
       if (cancelled) return;
-      applyAuthState();
-    });
+
+      console.log('Setting up onAuthStateChanged listener...');
+      unsubscribe = onAuthStateChanged(auth, (user) => {
+        if (cancelled) return;
+        console.log('Auth state changed:', user ? `User logged in: ${user.email}` : 'No user');
+        setUser(user);
+        if (user) {
+          setIsGuest(user.isAnonymous);
+          taskService.isGuest = user.isAnonymous;
+        }
+        setIsAuthReady(true);
+      });
+    })();
+
     return () => {
       cancelled = true;
-      data?.subscription?.unsubscribe?.();
+      unsubscribe?.();
+      setIsAuthReady(false);
     };
-  }, [applyAuthState]);
+  }, [handleAuthError]);
 
   useEffect(() => {
     if (user || isGuest) {
       taskService.testConnection();
-
+      
       const unsubscribeTasks = taskService.subscribeParentTasks(setParentTasks);
       const unsubscribeSettings = taskService.subscribeSettings((s) => {
         if (!s) {
@@ -123,118 +181,139 @@ export default function App() {
     }
   }, [user, isGuest]);
 
-  const handleEmailSignIn = async (email: string, password: string) => {
-    const res = await auth.signInWithPassword({ email, password });
-    if (res.error) {
-      throw new Error(authErrorMessage(res.error));
-    }
-    applyAuthState();
+  const signInWithGooglePopup = async () => {
+    await waitForAuthRedirectResult();
+    const result = await signInWithPopup(auth, createGoogleAuthProvider());
+    console.log('Google login successful, user:', result.user.email);
   };
 
-  // 新規登録ステップ1：メールへ認証コードを送信
-  const handleSendSignUpCode = async (email: string) => {
+  const handleLogin = async () => {
+    if (loginInFlightRef.current || isLoggingIn || !isAuthReady) return;
+    loginInFlightRef.current = true;
+    setIsLoggingIn(true);
+    console.log('Starting Google login with popup...');
     try {
-      const res = await auth.getVerification({ email });
-      if (!res?.verification_id) {
-        throw new Error('認証コードの送信に失敗しました。');
-      }
-      signupVerifyRef.current = { email, verificationId: res.verification_id };
-    } catch (error: any) {
-      throw new Error(authErrorMessage(error));
-    }
-  };
-
-  // 新規登録ステップ2：認証コードを検証してアカウント作成
-  const handleConfirmSignUp = async (email: string, password: string, code: string) => {
-    const pending = signupVerifyRef.current;
-    if (!pending || pending.email !== email) {
-      throw new Error('認証コードを先に送信してください。');
-    }
-    try {
-      const verifyRes = await auth.verify({
-        verification_id: pending.verificationId,
-        verification_code: code,
-      });
-      if (!verifyRes?.verification_token) {
-        throw new Error('認証コードが正しくありません。');
-      }
-      const res = await auth.signUp({
-        email,
-        password,
-        verification_code: code,
-        verification_token: verifyRes.verification_token,
-      });
-      if (res.error) {
-        throw new Error(authErrorMessage(res.error));
-      }
-      signupVerifyRef.current = null;
-      // signUp で自動ログインされない場合に備えてパスワードログインを試みる
-      if (!auth.currentUser) {
-        const signInRes = await auth.signInWithPassword({ email, password });
-        if (signInRes.error) {
-          throw new Error(authErrorMessage(signInRes.error));
+      try {
+        await signInWithGooglePopup();
+      } catch (error: any) {
+        if (error?.code === 'auth/cancelled-popup-request') {
+          console.warn('Popup request cancelled, retrying once...');
+          await new Promise(resolve => setTimeout(resolve, 300));
+          await signInWithGooglePopup();
+          return;
         }
+        throw error;
       }
-      applyAuthState();
     } catch (error: any) {
-      throw error instanceof Error ? error : new Error(authErrorMessage(error));
+      console.error('Google login failed:', error);
+      if (POPUP_FALLBACK_TO_REDIRECT_CODES.has(error?.code)) {
+        try {
+          console.warn('Falling back to signInWithRedirect after:', error.code);
+          await signInWithRedirect(auth, createGoogleAuthProvider());
+          return;
+        } catch (redirectErr: any) {
+          console.error('Google redirect sign-in failed:', redirectErr);
+          handleAuthError(redirectErr);
+        }
+      } else {
+        handleAuthError(error);
+      }
+    } finally {
+      loginInFlightRef.current = false;
+      setIsLoggingIn(false);
     }
   };
 
-  // パスワード再設定ステップ1：メールへ認証コードを送信
-  const handleSendResetCode = async (email: string) => {
+  const handleMicrosoftLogin = async () => {
+    if (loginInFlightRef.current || isLoggingIn || !isAuthReady) return;
+    loginInFlightRef.current = true;
+    setIsLoggingIn(true);
+    console.log('Starting Microsoft login...');
+    const provider = createMicrosoftAuthProvider();
     try {
-      const res = await auth.getVerification({ email });
-      if (!res?.verification_id) {
-        throw new Error('認証コードの送信に失敗しました。');
-      }
-      resetVerifyRef.current = { email, verificationId: res.verification_id };
+      await waitForAuthRedirectResult();
+      await signInWithPopup(auth, provider);
+      console.log('Microsoft login successful');
     } catch (error: any) {
-      throw new Error(authErrorMessage(error));
+      if (POPUP_FALLBACK_TO_REDIRECT_CODES.has(error?.code)) {
+        try {
+          console.warn('Falling back to signInWithRedirect (Microsoft) after:', error.code);
+          await signInWithRedirect(auth, createMicrosoftAuthProvider());
+          return;
+        } catch (redirectErr: any) {
+          handleAuthError(redirectErr);
+        }
+      } else {
+        handleAuthError(error);
+      }
+    } finally {
+      loginInFlightRef.current = false;
+      setIsLoggingIn(false);
     }
   };
 
-  // パスワード再設定ステップ2：認証コードを検証して新しいパスワードを設定
-  const handleConfirmReset = async (email: string, newPassword: string, code: string) => {
-    const pending = resetVerifyRef.current;
-    if (!pending || pending.email !== email) {
-      throw new Error('認証コードを先に送信してください。');
-    }
+  const handleEmailSignIn = async (email: string, password: string) => {
+    await waitForAuthRedirectResult();
     try {
-      const verifyRes = await auth.verify({
-        verification_id: pending.verificationId,
-        verification_code: code,
-      });
-      if (!verifyRes?.verification_token) {
-        throw new Error('認証コードが正しくありません。');
-      }
-      await auth.resetPassword({
-        email,
-        new_password: newPassword,
-        verification_token: verifyRes.verification_token,
-      });
-      resetVerifyRef.current = null;
+      await signInWithEmailAndPassword(auth, email, password);
+      console.log('Email/password sign-in successful');
     } catch (error: any) {
-      throw error instanceof Error ? error : new Error(authErrorMessage(error));
+      console.error('Email sign-in failed:', error);
+      throw new Error(emailAuthErrorMessage(error?.code));
+    }
+  };
+
+  const handleEmailSignUp = async (email: string, password: string) => {
+    await waitForAuthRedirectResult();
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      console.log('Account created successfully');
+      // Fire a verification email. Doubles as a diagnostic: if this never arrives,
+      // the project's email-sending channel is misconfigured (not the reset logic).
+      try {
+        await sendEmailVerification(cred.user);
+        console.log('Verification email requested for', email);
+      } catch (verifyErr) {
+        console.warn('Could not send verification email:', verifyErr);
+      }
+    } catch (error: any) {
+      console.error('Account creation failed:', error);
+      throw new Error(emailAuthErrorMessage(error?.code));
+    }
+  };
+
+  const handlePasswordReset = async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error: any) {
+      console.error('Password reset failed:', error);
+      throw new Error(emailAuthErrorMessage(error?.code));
     }
   };
 
   const handleGuestLogin = async () => {
     setIsGuestLoading(true);
+    console.log('Attempting guest login...');
     try {
-      const res = await auth.signInAnonymously();
-      if (res.error) throw res.error;
+      // Try Firebase Anonymous Auth first
+      await signInAnonymously(auth);
       setIsGuest(true);
       taskService.isGuest = true;
+      console.log('Firebase anonymous login successful');
     } catch (error: any) {
-      // 匿名ログインが未開放などの場合はローカルゲストモードにフォールバック
-      console.warn('Anonymous sign-in unavailable, using local guest mode:', error?.message || error);
+      // Silent fallback for expected admin-restricted-operation (Anonymous Auth disabled)
+      if (error.code !== 'auth/admin-restricted-operation') {
+        console.warn('Firebase anonymous login failed, falling back to local guest mode:', error);
+      }
       taskService.isGuest = true;
       setIsGuest(true);
+      console.log('Local guest mode activated');
     } finally {
       setIsGuestLoading(false);
     }
   };
+
+  console.log('App Render:', { isAuthReady, user: !!user, isGuest });
 
   if (!isAuthReady) {
     return (
@@ -248,31 +327,38 @@ export default function App() {
   }
 
   if (!user && !isGuest) {
+    console.log('Rendering Login Screen');
     return (
       <Login
         isAuthReady={isAuthReady}
+        isLoggingIn={isLoggingIn}
         isGuestLoading={isGuestLoading}
+        microsoftEnabled={MICROSOFT_SIGN_IN_ENABLED}
+        onGoogleLogin={handleLogin}
+        onMicrosoftLogin={handleMicrosoftLogin}
         onGuestLogin={handleGuestLogin}
         onEmailSignIn={handleEmailSignIn}
-        onSendSignUpCode={handleSendSignUpCode}
-        onConfirmSignUp={handleConfirmSignUp}
-        onSendResetCode={handleSendResetCode}
-        onConfirmReset={handleConfirmReset}
+        onEmailSignUp={handleEmailSignUp}
+        onPasswordReset={handlePasswordReset}
       />
     );
   }
 
   const handleLogout = async () => {
-    const wasAnonymous = (user && user.loginType === 'ANONYMOUS') || isGuest;
+    const wasAnonymous = user?.isAnonymous || isGuest;
     if (wasAnonymous) {
       console.log('Cleaning up guest data before logout...');
       try {
-        await taskService.cleanupUserData(user?.uid || 'guest');
+        if (user) {
+          await taskService.cleanupUserData(user.uid);
+        } else {
+          await taskService.cleanupUserData('guest');
+        }
       } catch (error) {
         console.error('Failed to cleanup guest data:', error);
       }
     }
-    await auth.signOut();
+    await signOut(auth);
     if (wasAnonymous) {
       setIsGuest(false);
       taskService.isGuest = false;
@@ -283,12 +369,12 @@ export default function App() {
   const renderContent = () => {
     if (selectedParentTask) {
       return (
-        <SubTaskManagement
-          parentTask={selectedParentTask}
+        <SubTaskManagement 
+          parentTask={selectedParentTask} 
           onBack={() => {
             setSelectedParentTask(null);
             setHighlightTaskId(null);
-          }}
+          }} 
           highlightTaskId={highlightTaskId}
         />
       );
@@ -305,14 +391,14 @@ export default function App() {
         return <FileImport onImportComplete={() => setActiveTab('dashboard')} />;
       case 'reports':
         return (
-          <DailyReport
+          <DailyReport 
             onJumpToTask={(task) => {
               const parent = parentTasks.find(p => p.id === task.parent_task_id);
               if (parent) {
                 setSelectedParentTask(parent);
                 setHighlightTaskId(task.id);
               }
-            }}
+            }} 
           />
         );
       case 'settings':
@@ -331,13 +417,13 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <Layout
-        activeTab={activeTab}
+      <Layout 
+        activeTab={activeTab} 
         setActiveTab={(tab) => {
           setActiveTab(tab);
           setSelectedParentTask(null);
           setHighlightTaskId(null);
-        }}
+        }} 
         user={user}
         onLogout={handleLogout}
       >
